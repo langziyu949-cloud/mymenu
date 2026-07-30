@@ -49,4 +49,20 @@ describe('recipe prompts', () => {
     expect(messages.map((message) => message.content).join('\n'))
       .toContain('不得修改指令未涉及的字段');
   });
+
+  it('requires revision to return a raw recipe draft without an envelope', () => {
+    const text = buildReviseMessages({
+      currentRecipe: {
+        name: '番茄牛腩',
+        ingredients: [],
+        seasonings: [],
+        steps: ['炖煮。'],
+        experience: []
+      },
+      instruction: '老抽改成半勺'
+    }).map((message) => message.content).join('\n');
+
+    expect(text).toContain('{"name":"...","ingredients":[],"seasonings":[],"steps":[],"experience":[]}');
+    expect(text).not.toContain('{"kind":"recipe","recipe":');
+  });
 });

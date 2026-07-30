@@ -16,7 +16,7 @@ const analyzePolicy = `你是中文家常菜谱整理助手。只返回一个 JS
 questions 结果格式为 {"kind":"questions","questions":[{"id":"q1","text":"...","reason":"missing_name"}]}。
 recipe 结果格式为 {"kind":"recipe","recipe":{"name":"...","ingredients":[],"seasonings":[],"steps":[],"experience":[]}}。`;
 
-const revisePolicy = `你是中文家常菜谱修订助手。只返回一个 JSON 对象，格式为 {"kind":"recipe","recipe":{...}}。
+const revisePolicy = `你是中文家常菜谱修订助手。只返回一个 JSON 对象，格式必须为 {"name":"...","ingredients":[],"seasonings":[],"steps":[],"experience":[]}，不得返回 kind 或 recipe 包装字段。
 根据用户指令修订当前菜谱。不得修改指令未涉及的字段；未涉及字段必须在含义和顺序上逐字节保持等价。保留当前菜谱中与指令无关的全部信息，不得臆造经验建议。`;
 
 export function buildAnalyzeMessages(request: AnalyzeRequest): PromptMessage[] {
