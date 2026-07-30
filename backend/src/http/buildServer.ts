@@ -10,7 +10,7 @@ import type { AppConfig } from '../config.js';
 import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../domain/recipe.js';
 import { AnalyzeRequestSchema, ReviseRequestSchema } from '../domain/schemas.js';
 import { InvalidModelOutputError } from '../services/recipeService.js';
-import { createPublicError, type PublicError, type PublicErrorCode } from './errors.js';
+import { createPublicError, type PublicError } from './errors.js';
 
 interface RecipeServiceDependency {
   analyze(request: AnalyzeRequest): Promise<AnalyzeResult>;
@@ -33,8 +33,17 @@ export interface BuildServerDependencies {
 
 class UnauthorizedError extends Error {}
 
-interface ErrorWithStatusCode {
-  statusCode?: unknown;
+const invalidRequestFastifyErrorCodes = new Set([
+  'FST_ERR_CTP_INVALID_MEDIA_TYPE',
+  'FST_ERR_CTP_INVALID_CONTENT_LENGTH',
+  'FST_ERR_CTP_EMPTY_JSON_BODY',
+  'FST_ERR_CTP_INVALID_JSON_BODY'
+]);
+
+const bodyTooLargeFastifyErrorCode = 'FST_ERR_CTP_BODY_TOO_LARGE';
+
+interface ErrorWithCode {
+  code?: unknown;
 }
 
 export function buildServer(dependencies: BuildServerDependencies): FastifyInstance {
@@ -99,10 +108,10 @@ function mapError(error: unknown): { statusCode: number; body: PublicError } {
   if (error instanceof UnauthorizedError) {
     return { statusCode: 401, body: createPublicError('UNAUTHORIZED') };
   }
-  if (error instanceof ZodError || getStatusCode(error) === 400) {
+  if (error instanceof ZodError || hasFastifyErrorCode(error, invalidRequestFastifyErrorCodes)) {
     return { statusCode: 400, body: createPublicError('INVALID_REQUEST') };
   }
-  if (getStatusCode(error) === 413) {
+  if (hasFastifyErrorCode(error, bodyTooLargeFastifyErrorCode)) {
     return { statusCode: 413, body: createPublicError('PAYLOAD_TOO_LARGE') };
   }
   if (error instanceof InvalidModelOutputError) {
@@ -118,10 +127,13 @@ function mapError(error: unknown): { statusCode: number; body: PublicError } {
   return { statusCode: 500, body: createPublicError('INTERNAL_ERROR') };
 }
 
-function getStatusCode(error: unknown): number | undefined {
+function hasFastifyErrorCode(error: unknown, expectedCode: string | Set<string>): boolean {
   if (typeof error !== 'object' || error === null) {
-    return undefined;
+    return false;
   }
-  const statusCode = (error as ErrorWithStatusCode).statusCode;
-  return typeof statusCode === 'number' ? statusCode : undefined;
+  const code = (error as ErrorWithCode).code;
+  if (typeof code !== 'string') {
+    return false;
+  }
+  return typeof expectedCode === 'string' ? code === expectedCode : expectedCode.has(code);
 }

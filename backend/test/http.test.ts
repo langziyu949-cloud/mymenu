@@ -150,6 +150,47 @@ describe('HTTP API', () => {
     expect(response.body).not.toContain(error.message);
   });
 
+  it('treats an unexpected service error with a statusCode as an internal error', async () => {
+    const serviceError = Object.assign(new Error('service failure'), { statusCode: 400 });
+    const { app } = createApp(createService({
+      analyze: vi.fn(async () => { throw serviceError; })
+    }));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/recipes/analyze',
+      headers: { authorization: `Bearer ${config.APP_ACCESS_TOKEN}` },
+      payload: { originalText: '番茄炒蛋。' }
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({
+      error: { code: 'INTERNAL_ERROR', retryable: false }
+    });
+  });
+
+  it.each([
+    ['malformed JSON', 'application/json', '{"originalText":'],
+    ['unsupported media type', 'application/xml', '<recipe />']
+  ])('maps %s parser input to INVALID_REQUEST', async (_label, contentType, payload) => {
+    const { app } = createApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/recipes/analyze',
+      headers: {
+        authorization: `Bearer ${config.APP_ACCESS_TOKEN}`,
+        'content-type': contentType
+      },
+      payload
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: { code: 'INVALID_REQUEST', retryable: false }
+    });
+  });
+
   it('rejects a payload larger than 64 KB', async () => {
     const { app } = createApp();
 
