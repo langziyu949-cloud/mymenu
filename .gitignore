@@ -1,2 +1,6 @@
 .superpowers/
 .worktrees/
+backend/.env
+backend/dist/
+backend/node_modules/
+backend/kitchen-master-scf.zip
