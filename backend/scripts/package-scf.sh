@@ -3,6 +3,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 npm ci
 npm run test
+rm -rf dist
 npm run build
 npm prune --omit=dev
 rm -rf node_modules/.vite

@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   DeepSeekClient,
-  DeepSeekHttpError
+  DeepSeekHttpError,
+  DeepSeekRequestAbortedError,
+  DeepSeekRequestError
 } from '../src/ai/deepSeekClient.js';
 
 const config = {
@@ -13,6 +15,7 @@ const config = {
 describe('DeepSeekClient', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
   });
 
   it('sends a JSON-mode non-streaming completion request', async () => {
@@ -55,5 +58,45 @@ describe('DeepSeekClient', () => {
     await expect(new DeepSeekClient(config).complete([
       { role: 'user', content: 'private request text' }
     ])).rejects.not.toThrow('private request text');
+  });
+
+  it('preserves an aborted response-body read as a non-retryable request abort', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }
+    } as Response)));
+
+    await expect(new DeepSeekClient(config).complete([
+      { role: 'user', content: 'private request text' }
+    ])).rejects.toBeInstanceOf(DeepSeekRequestAbortedError);
+  });
+
+  it('preserves other response-body transport failures as non-retryable request errors', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => {
+        throw new TypeError('socket closed');
+      }
+    } as Response)));
+
+    await expect(new DeepSeekClient(config).complete([
+      { role: 'user', content: 'private request text' }
+    ])).rejects.toBeInstanceOf(DeepSeekRequestError);
+  });
+
+  it('classifies a body-read failure as aborted when the request timeout has fired', async () => {
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValue(AbortSignal.abort());
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      json: async () => {
+        throw new TypeError('socket closed');
+      }
+    } as Response)));
+
+    await expect(new DeepSeekClient(config).complete([
+      { role: 'user', content: 'private request text' }
+    ])).rejects.toBeInstanceOf(DeepSeekRequestAbortedError);
   });
 });

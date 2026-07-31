@@ -88,7 +88,7 @@ export class DeepSeekClient implements ChatCompletionClient {
       throw new DeepSeekHttpError(response.status);
     }
 
-    const payload = await this.parsePayload(response);
+    const payload = await this.parsePayload(response, timeout);
     const choice = payload.choices?.[0];
     if (choice?.finish_reason === 'length') {
       throw new DeepSeekTruncatedResponseError();
@@ -106,7 +106,7 @@ export class DeepSeekClient implements ChatCompletionClient {
     return `${this.config.DEEPSEEK_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
   }
 
-  private async parsePayload(response: Response): Promise<CompletionPayload> {
+  private async parsePayload(response: Response, timeout: AbortSignal): Promise<CompletionPayload> {
     try {
       const payload: unknown = await response.json();
       if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) {
@@ -117,7 +117,15 @@ export class DeepSeekClient implements ChatCompletionClient {
       if (error instanceof DeepSeekResponseError) {
         throw error;
       }
-      throw new DeepSeekResponseError();
+      if (timeout.aborted || this.isAbortError(error)) {
+        throw new DeepSeekRequestAbortedError();
+      }
+      throw new DeepSeekRequestError();
     }
+  }
+
+  private isAbortError(error: unknown): boolean {
+    return typeof error === 'object' && error !== null &&
+      'name' in error && error.name === 'AbortError';
   }
 }
