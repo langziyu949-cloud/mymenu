@@ -61,10 +61,14 @@ struct Index {
   @State detailUpdatedAt: number = 0;
   @State isEditingDetail: boolean = false;
   @State editName: string = '';
-  @State editSteps: string = '';
-  @State editIngredients: string = '';
-  @State editSeasonings: string = '';
-  @State editExperience: string = '';
+  @State editSteps: string[] = [];
+  @State editIngredientNames: string[] = [];
+  @State editIngredientAmounts: string[] = [];
+  @State editIngredientEstimated: boolean[] = [];
+  @State editSeasoningNames: string[] = [];
+  @State editSeasoningAmounts: string[] = [];
+  @State editSeasoningEstimated: boolean[] = [];
+  @State editExperience: string[] = [];
 
   @State showPhotoPrompt: boolean = false;
   @State showDeleteConfirm: boolean = false;
@@ -417,30 +421,147 @@ struct Index {
 
   private beginDetailEdit(): void {
     this.editName = this.detailName;
-    this.editSteps = this.detailSteps.join('\n');
-    this.editIngredients = this.detailIngredients.join('\n');
-    this.editSeasonings = this.detailSeasonings.join('\n');
-    this.editExperience = this.detailExperience.join('\n');
+    this.editSteps = this.detailSteps.slice();
+    const ingredients: AiRecipeItem[] = this.detailIngredients.map((item: string) => this.parseAiItem(item));
+    this.editIngredientNames = ingredients.map((item: AiRecipeItem) => item.name);
+    this.editIngredientAmounts = ingredients.map((item: AiRecipeItem) => item.amount);
+    this.editIngredientEstimated = ingredients.map((item: AiRecipeItem) => item.isAiEstimated);
+    const seasonings: AiRecipeItem[] = this.detailSeasonings.map((item: string) => this.parseAiItem(item));
+    this.editSeasoningNames = seasonings.map((item: AiRecipeItem) => item.name);
+    this.editSeasoningAmounts = seasonings.map((item: AiRecipeItem) => item.amount);
+    this.editSeasoningEstimated = seasonings.map((item: AiRecipeItem) => item.isAiEstimated);
+    this.editExperience = this.detailExperience.slice();
     this.isEditingDetail = true;
     this.statusMessage = '';
   }
 
-  private lines(value: string): string[] {
-    return value.split('\n').map((line: string) => line.trim()).filter((line: string) => line.length > 0);
+  private nonEmptyItems(values: string[]): string[] {
+    return values.map((value: string) => value.trim()).filter((value: string) => value.length > 0);
+  }
+
+  private combineEditableItems(names: string[], amounts: string[], estimated: boolean[]): string[] {
+    const result: string[] = [];
+    names.forEach((name: string, index: number) => {
+      const cleanName: string = name.trim();
+      if (cleanName.length === 0) {
+        return;
+      }
+      result.push(this.formatAiItem({
+        name: cleanName,
+        amount: index < amounts.length ? amounts[index].trim() : '',
+        isAiEstimated: index < estimated.length ? estimated[index] : false
+      }));
+    });
+    return result;
+  }
+
+  private setStringItem(values: string[], index: number, value: string): string[] {
+    const updated: string[] = values.slice();
+    updated[index] = value;
+    return updated;
+  }
+
+  private setBooleanItem(values: boolean[], index: number, value: boolean): boolean[] {
+    const updated: boolean[] = values.slice();
+    updated[index] = value;
+    return updated;
+  }
+
+  private removeStringItem(values: string[], index: number): string[] {
+    const updated: string[] = values.slice();
+    updated.splice(index, 1);
+    return updated;
+  }
+
+  private removeBooleanItem(values: boolean[], index: number): boolean[] {
+    const updated: boolean[] = values.slice();
+    updated.splice(index, 1);
+    return updated;
+  }
+
+  private addMeasuredItem(kind: number): void {
+    if (kind === 0) {
+      this.editIngredientNames = this.editIngredientNames.concat(['']);
+      this.editIngredientAmounts = this.editIngredientAmounts.concat(['']);
+      this.editIngredientEstimated = this.editIngredientEstimated.concat([false]);
+    } else {
+      this.editSeasoningNames = this.editSeasoningNames.concat(['']);
+      this.editSeasoningAmounts = this.editSeasoningAmounts.concat(['']);
+      this.editSeasoningEstimated = this.editSeasoningEstimated.concat([false]);
+    }
+  }
+
+  private removeMeasuredItem(index: number, kind: number): void {
+    if (kind === 0) {
+      this.editIngredientNames = this.removeStringItem(this.editIngredientNames, index);
+      this.editIngredientAmounts = this.removeStringItem(this.editIngredientAmounts, index);
+      this.editIngredientEstimated = this.removeBooleanItem(this.editIngredientEstimated, index);
+    } else {
+      this.editSeasoningNames = this.removeStringItem(this.editSeasoningNames, index);
+      this.editSeasoningAmounts = this.removeStringItem(this.editSeasoningAmounts, index);
+      this.editSeasoningEstimated = this.removeBooleanItem(this.editSeasoningEstimated, index);
+    }
+  }
+
+  private updateMeasuredName(value: string, index: number, kind: number): void {
+    if (kind === 0) {
+      this.editIngredientNames = this.setStringItem(this.editIngredientNames, index, value);
+      this.editIngredientEstimated = this.setBooleanItem(this.editIngredientEstimated, index, false);
+    } else {
+      this.editSeasoningNames = this.setStringItem(this.editSeasoningNames, index, value);
+      this.editSeasoningEstimated = this.setBooleanItem(this.editSeasoningEstimated, index, false);
+    }
+  }
+
+  private updateMeasuredAmount(value: string, index: number, kind: number): void {
+    if (kind === 0) {
+      this.editIngredientAmounts = this.setStringItem(this.editIngredientAmounts, index, value);
+      this.editIngredientEstimated = this.setBooleanItem(this.editIngredientEstimated, index, false);
+    } else {
+      this.editSeasoningAmounts = this.setStringItem(this.editSeasoningAmounts, index, value);
+      this.editSeasoningEstimated = this.setBooleanItem(this.editSeasoningEstimated, index, false);
+    }
+  }
+
+  private addTextItem(kind: number): void {
+    if (kind === 0) {
+      this.editSteps = this.editSteps.concat(['']);
+    } else {
+      this.editExperience = this.editExperience.concat(['']);
+    }
+  }
+
+  private removeTextItem(index: number, kind: number): void {
+    if (kind === 0) {
+      this.editSteps = this.removeStringItem(this.editSteps, index);
+    } else {
+      this.editExperience = this.removeStringItem(this.editExperience, index);
+    }
+  }
+
+  private updateTextItem(value: string, index: number, kind: number): void {
+    if (kind === 0) {
+      this.editSteps = this.setStringItem(this.editSteps, index, value);
+    } else {
+      this.editExperience = this.setStringItem(this.editExperience, index, value);
+    }
   }
 
   private async saveDetailChanges(): Promise<void> {
-    if (this.repository === null || this.editName.trim().length === 0 || this.lines(this.editSteps).length === 0) {
+    const steps: string[] = this.nonEmptyItems(this.editSteps);
+    if (this.repository === null || this.editName.trim().length === 0 || steps.length === 0) {
       this.statusMessage = '菜名和制作步骤不能为空';
       return;
     }
     const updated: RecipeRecord = {
       id: this.detailId,
       name: this.editName.trim(),
-      steps: this.lines(this.editSteps),
-      ingredients: this.lines(this.editIngredients),
-      seasonings: this.lines(this.editSeasonings),
-      experience: this.lines(this.editExperience),
+      steps,
+      ingredients: this.combineEditableItems(
+        this.editIngredientNames, this.editIngredientAmounts, this.editIngredientEstimated),
+      seasonings: this.combineEditableItems(
+        this.editSeasoningNames, this.editSeasoningAmounts, this.editSeasoningEstimated),
+      experience: this.nonEmptyItems(this.editExperience),
       photoPath: this.detailPhotoPath,
       originalText: this.detailOriginalText,
       createdAt: this.detailCreatedAt,
@@ -1067,12 +1188,30 @@ struct Index {
   @Builder
   private DetailEditPage() {
     Scroll() {
-      Column({ space: 15 }) {
-        Text('编辑菜谱')
-          .width('100%')
-          .fontSize(24)
-          .fontWeight(FontWeight.Bold)
-          .fontColor(JADE)
+      Column({ space: 20 }) {
+        Row({ space: 10 }) {
+          Button('‹')
+            .width(38)
+            .height(38)
+            .fontSize(27)
+            .fontColor(JADE)
+            .backgroundColor(JADE_SOFT)
+            .borderRadius(12)
+            .onClick(() => this.isEditingDetail = false)
+          Column({ space: 2 }) {
+            Text('编辑菜谱')
+              .width('100%')
+              .fontSize(24)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(JADE)
+            Text('每项单独修改，保存时自动整理')
+              .width('100%')
+              .fontSize(12)
+              .fontColor(MUTED)
+          }
+          .layoutWeight(1)
+        }
+        .width('100%')
         if (this.statusMessage.length > 0) {
           Text(this.statusMessage)
             .width('100%')
@@ -1087,10 +1226,16 @@ struct Index {
           .backgroundColor(CARD)
           .borderRadius(12)
           .onChange((value: string) => this.editName = value)
-        this.EditArea('食材及用量（每行一项）', this.editIngredients, 100, 0)
-        this.EditArea('调料及用量（每行一项）', this.editSeasonings, 100, 1)
-        this.EditArea('制作步骤（每行一步）', this.editSteps, 160, 2)
-        this.EditArea('经验建议（每行一条）', this.editExperience, 110, 3)
+
+        this.MeasuredEditSection(
+          '食材及用量', '食材', this.editIngredientNames,
+          this.editIngredientAmounts, this.editIngredientEstimated, 0)
+        this.MeasuredEditSection(
+          '调料及用量', '调料', this.editSeasoningNames,
+          this.editSeasoningAmounts, this.editSeasoningEstimated, 1)
+        this.TextItemEditSection('制作步骤', '步骤', this.editSteps, 0)
+        this.TextItemEditSection('经验建议', '建议', this.editExperience, 1)
+
         Row({ space: 10 }) {
           Button('取消')
             .layoutWeight(1)
@@ -1119,32 +1264,186 @@ struct Index {
   }
 
   @Builder
-  private EditArea(title: string, value: string, areaHeight: number, kind: number) {
-    Column({ space: 7 }) {
+  private EditSectionHeader(title: string, addLabel: string, kind: number, measured: boolean) {
+    Row() {
       Text(title)
-        .width('100%')
-        .fontSize(13)
-        .fontColor(MUTED)
-      TextArea({ text: value, placeholder: '未填写' })
-        .width('100%')
-        .height(areaHeight)
-        .fontSize(15)
-        .lineHeight(22)
-        .fontColor(INK)
-        .backgroundColor(CARD)
-        .borderRadius(12)
-        .padding(12)
-        .onChange((text: string) => {
-          if (kind === 0) {
-            this.editIngredients = text;
-          } else if (kind === 1) {
-            this.editSeasonings = text;
-          } else if (kind === 2) {
-            this.editSteps = text;
+        .layoutWeight(1)
+        .fontSize(16)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(JADE)
+      Button(`＋ ${addLabel}`)
+        .height(34)
+        .fontSize(12)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(JADE)
+        .backgroundColor(JADE_SOFT)
+        .borderRadius(11)
+        .onClick(() => {
+          if (measured) {
+            this.addMeasuredItem(kind);
           } else {
-            this.editExperience = text;
+            this.addTextItem(kind);
           }
         })
+    }
+    .width('100%')
+  }
+
+  @Builder
+  private MeasuredEditItem(name: string, amount: string, estimated: boolean, index: number, kind: number) {
+    Column({ space: 10 }) {
+      Row({ space: 9 }) {
+        Text(`${index + 1}`)
+          .width(26)
+          .height(26)
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .textAlign(TextAlign.Center)
+          .backgroundColor(kind === 0 ? JADE : CHILI)
+          .borderRadius(13)
+        TextInput({ text: name, placeholder: kind === 0 ? '食材名称' : '调料名称' })
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(15)
+          .fontColor(INK)
+          .backgroundColor('#F3F6F3')
+          .borderRadius(10)
+          .onChange((value: string) => this.updateMeasuredName(value, index, kind))
+        Button('删除')
+          .height(34)
+          .fontSize(12)
+          .fontColor('#A44332')
+          .backgroundColor('#F8E7E3')
+          .borderRadius(10)
+          .onClick(() => this.removeMeasuredItem(index, kind))
+      }
+      .width('100%')
+
+      Row({ space: 9 }) {
+        Text('用量')
+          .width(34)
+          .fontSize(12)
+          .fontColor(MUTED)
+        TextInput({ text: amount, placeholder: '可直接输入' })
+          .layoutWeight(1)
+          .height(42)
+          .fontSize(14)
+          .fontColor(INK)
+          .backgroundColor('#F3F6F3')
+          .borderRadius(10)
+          .onChange((value: string) => this.updateMeasuredAmount(value, index, kind))
+        Select([
+          { value: '适量' }, { value: '少许' }, { value: '半个' }, { value: '1个' },
+          { value: '2个' }, { value: '10个' }, { value: '半勺' }, { value: '1勺' },
+          { value: '半瓶' }, { value: '1瓶' }, { value: '1杯' }, { value: '10克' },
+          { value: '100克' }, { value: '10毫升' }
+        ])
+          .width(116)
+          .height(42)
+          .value('常用用量')
+          .font({ size: 13, weight: FontWeight.Medium })
+          .fontColor(JADE)
+          .backgroundColor(JADE_SOFT)
+          .borderRadius(10)
+          .onSelect((_selected: number, value: string) => this.updateMeasuredAmount(value, index, kind))
+      }
+      .width('100%')
+
+      if (estimated) {
+        Text('AI 估算 · 修改后会转为你的实际用量')
+          .width('100%')
+          .fontSize(11)
+          .fontColor(ESTIMATE_TEXT)
+      }
+    }
+    .width('100%')
+    .padding(12)
+    .backgroundColor(CARD)
+    .border({ width: 1, color: LINE })
+    .borderRadius(14)
+  }
+
+  @Builder
+  private MeasuredEditSection(
+    title: string, addLabel: string, names: string[], amounts: string[], estimated: boolean[], kind: number) {
+    Column({ space: 10 }) {
+      this.EditSectionHeader(title, `添加${addLabel}`, kind, true)
+      if (names.length === 0) {
+        Text(`还没有${addLabel}，可按右上角添加`)
+          .width('100%')
+          .fontSize(13)
+          .fontColor(MUTED)
+          .padding(14)
+          .backgroundColor('#E9EFEB')
+          .borderRadius(12)
+      } else {
+        ForEach(names, (name: string, index: number) => {
+          this.MeasuredEditItem(
+            name,
+            index < amounts.length ? amounts[index] : '',
+            index < estimated.length ? estimated[index] : false,
+            index,
+            kind)
+        }, (_name: string, index: number) => `${kind}-${index}`)
+      }
+    }
+    .width('100%')
+  }
+
+  @Builder
+  private TextItemEditSection(title: string, addLabel: string, items: string[], kind: number) {
+    Column({ space: 10 }) {
+      this.EditSectionHeader(title, `添加${addLabel}`, kind, false)
+      if (items.length === 0) {
+        Text(kind === 0 ? '至少添加一个制作步骤' : '没有经验建议也可以保存')
+          .width('100%')
+          .fontSize(13)
+          .fontColor(MUTED)
+          .padding(14)
+          .backgroundColor('#E9EFEB')
+          .borderRadius(12)
+      } else {
+        ForEach(items, (item: string, index: number) => {
+          Row({ space: 10 }) {
+            Text(kind === 0 ? `${index + 1}` : '记')
+              .width(28)
+              .height(28)
+              .fontSize(12)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FFFFFF')
+              .textAlign(TextAlign.Center)
+              .backgroundColor(kind === 0 ? JADE : CHILI)
+              .borderRadius(14)
+            TextArea({
+              text: item,
+              placeholder: kind === 0 ? `第 ${index + 1} 步怎么做` : '记录一条下次还想记得的经验'
+            })
+              .layoutWeight(1)
+              .height(kind === 0 ? 82 : 72)
+              .fontSize(14)
+              .lineHeight(21)
+              .fontColor(INK)
+              .backgroundColor('#F3F6F3')
+              .borderRadius(10)
+              .padding(10)
+              .onChange((value: string) => this.updateTextItem(value, index, kind))
+            Button('删除')
+              .height(34)
+              .fontSize(12)
+              .fontColor('#A44332')
+              .backgroundColor('#F8E7E3')
+              .borderRadius(10)
+              .onClick(() => this.removeTextItem(index, kind))
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Top)
+          .padding(12)
+          .backgroundColor(CARD)
+          .border({ width: 1, color: LINE })
+          .borderRadius(14)
+        }, (_item: string, index: number) => `${kind}-${index}`)
+      }
     }
     .width('100%')
   }
