@@ -70,6 +70,9 @@
    - `DEEPSEEK_MODEL`
    - `PORT=9000`
 
+   For the current MVP, use `DEEPSEEK_MODEL=deepseek-v4-flash`. The older
+   `deepseek-chat` and `deepseek-reasoner` aliases are no longer used by this project.
+
 5. Create a public HTTPS Function URL. Public URL access does not replace application authentication: bearer authentication remains mandatory for analyze requests.
 
 6. Verify the deployed health endpoint, then send an analyze request to the Function URL using the device token as the bearer token and a JSON request file. Do not expose `DEEPSEEK_API_KEY` to the client.

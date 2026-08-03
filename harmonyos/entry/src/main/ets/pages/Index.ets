@@ -1,8 +1,16 @@
 import { common } from '@kit.AbilityKit';
-import { DemoRecipeDraft, DemoRevisionResult, generateDemoRecipe, reviseDemoRecipe } from '../domain/DemoRecipeGenerator';
 import { RecipeRepository } from '../data/RecipeRepository';
 import { DraftSession, RecipeDraft, RecipeRecord } from '../models/RecipeModels';
 import { pickRecipePhoto } from '../services/PhotoPickerService';
+import {
+  AiAnalyzeResult,
+  AiClarifyingAnswer,
+  AiClarifyingQuestion,
+  AiRecipeDraft,
+  AiRecipeItem,
+  RecipeAiService,
+  RecipeAiServiceError
+} from '../services/RecipeAiService';
 
 const PAPER: string = '#F2F5F1';
 const CARD: string = '#FCFDFB';
@@ -24,6 +32,7 @@ struct Index {
   @State hasDraft: boolean = false;
   @State hasQuestion: boolean = false;
   @State questionText: string = '';
+  @State questionIds: string[] = [];
   @State latestInstruction: string = '';
   @State assistantReply: string = '';
   @State draftName: string = '';
@@ -33,6 +42,7 @@ struct Index {
   @State draftExperience: string[] = [];
   @State statusMessage: string = '';
   @State isWorking: boolean = false;
+  @State aiOnline: boolean = false;
 
   @State recipes: RecipeRecord[] = [];
   @State visibleRecipes: RecipeRecord[] = [];
@@ -70,6 +80,7 @@ struct Index {
   @State pendingDeletedName: string = '';
 
   private repository: RecipeRepository | null = null;
+  private readonly aiService: RecipeAiService = new RecipeAiService();
 
   aboutToAppear(): void {
     this.initialize();
@@ -81,6 +92,7 @@ struct Index {
       this.repository = await RecipeRepository.create(context);
       await this.refreshRecipes();
       await this.restoreDraft();
+      this.aiOnline = await this.aiService.isAvailable();
     } catch {
       this.statusMessage = '本地菜谱夹初始化失败，请重新打开应用';
     }
@@ -135,22 +147,81 @@ struct Index {
     await this.repository.saveDraft(draft);
   }
 
-  private applyGeneratedRecipe(recipe: DemoRecipeDraft): void {
+  private formatAiItem(item: AiRecipeItem): string {
+    const amount: string = item.amount.trim();
+    const content: string = amount.length > 0 ? `${item.name} · ${amount}` : item.name;
+    return item.isAiEstimated ? `${content}（AI估算）` : content;
+  }
+
+  private parseAiItem(value: string): AiRecipeItem {
+    const isAiEstimated: boolean = value.includes('AI估算');
+    const clean: string = value.replace('（AI估算）', '').trim();
+    const delimiter: string = ' · ';
+    const index: number = clean.indexOf(delimiter);
+    if (index < 0) {
+      return { name: clean, amount: '', isAiEstimated };
+    }
+    return {
+      name: clean.slice(0, index).trim(),
+      amount: clean.slice(index + delimiter.length).trim(),
+      isAiEstimated
+    };
+  }
+
+  private applyAiRecipe(recipe: AiRecipeDraft): void {
     this.draftName = recipe.name;
     this.draftSteps = recipe.steps;
-    this.draftIngredients = recipe.ingredients;
-    this.draftSeasonings = recipe.seasonings;
+    this.draftIngredients = recipe.ingredients.map((item: AiRecipeItem) => this.formatAiItem(item));
+    this.draftSeasonings = recipe.seasonings.map((item: AiRecipeItem) => this.formatAiItem(item));
     this.draftExperience = recipe.experience;
     this.hasDraft = true;
     this.hasQuestion = false;
     this.questionText = '';
+    this.questionIds = [];
   }
 
-  private shouldAskForDetails(text: string): boolean {
-    const hasAction: boolean = text.includes('炒') || text.includes('煮') || text.includes('蒸') ||
-      text.includes('炖') || text.includes('煎') || text.includes('烤') || text.includes('拌') ||
-      text.includes('放') || text.includes('加入');
-    return text.length < 8 || !hasAction;
+  private currentAiRecipe(): AiRecipeDraft {
+    return {
+      name: this.draftName,
+      ingredients: this.draftIngredients.map((item: string) => this.parseAiItem(item)),
+      seasonings: this.draftSeasonings.map((item: string) => this.parseAiItem(item)),
+      steps: this.draftSteps,
+      experience: this.draftExperience
+    };
+  }
+
+  private applyAnalyzeResult(result: AiAnalyzeResult): void {
+    if (result.kind === 'questions') {
+      const questions: AiClarifyingQuestion[] = result.questions.slice(0, 3);
+      if (questions.length === 0) {
+        throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
+      }
+      this.hasQuestion = true;
+      this.hasDraft = false;
+      this.questionIds = questions.map((question: AiClarifyingQuestion) => question.id);
+      this.questionText = questions.map((question: AiClarifyingQuestion, index: number) =>
+        `${index + 1}. ${question.text}`).join('\n');
+      return;
+    }
+    if (result.recipe === null) {
+      throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
+    }
+    this.applyAiRecipe(result.recipe);
+  }
+
+  private aiErrorMessage(error: Error): string {
+    if (error instanceof RecipeAiServiceError) {
+      if (error.code === 'UNAUTHORIZED') {
+        return 'AI 服务鉴权配置有误，请检查本地后端';
+      }
+      if (error.code === 'AI_INVALID_RESPONSE') {
+        return 'AI 返回的菜谱格式不完整，内容已保留，请重试';
+      }
+      if (error.code === 'INVALID_REQUEST') {
+        return '这段描述暂时无法整理，请补充菜名或制作步骤';
+      }
+    }
+    return '暂时连接不上 AI，内容已保留，请稍后重试';
   }
 
   private async sendMessage(): Promise<void> {
@@ -164,46 +235,43 @@ struct Index {
 
     try {
       if (!this.hasDraft && !this.hasQuestion) {
+        const result: AiAnalyzeResult = await this.aiService.analyze(message);
+        this.aiOnline = true;
         this.originalText = message;
         this.composerText = '';
-        if (this.shouldAskForDetails(message)) {
-          this.hasQuestion = true;
-          this.questionText = '我还缺两个关键信息：这道菜叫什么？主要按什么顺序做？';
-          await this.persistDraft();
-          return;
-        }
-        this.applyGeneratedRecipe(generateDemoRecipe(message));
-        this.assistantReply = '我按你的描述整理好了。推测的用量已经标出，你可以继续用一句话修改。';
+        this.applyAnalyzeResult(result);
+        this.assistantReply = result.kind === 'questions' ? '' :
+          'DeepSeek 已按你的描述整理好了。推测的用量已经标出，你可以继续用一句话修改。';
         await this.persistDraft();
         return;
       }
 
       if (this.hasQuestion && !this.hasDraft) {
-        this.originalText = `${this.originalText}。${message}`;
+        const questionId: string = this.questionIds.length > 0 ? this.questionIds.join(',') : 'combined';
+        const answers: AiClarifyingAnswer[] = [{ questionId, answer: message }];
+        const result: AiAnalyzeResult = await this.aiService.analyze(this.originalText, answers);
+        if (result.kind !== 'recipe' || result.recipe === null) {
+          throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
+        }
+        this.aiOnline = true;
         this.composerText = '';
-        this.applyGeneratedRecipe(generateDemoRecipe(this.originalText));
-        this.assistantReply = '信息够了，我整理成卡片了。保存前还可以继续修改。';
+        this.latestInstruction = message;
+        this.applyAiRecipe(result.recipe);
+        this.assistantReply = '信息够了，DeepSeek 已整理成卡片。保存前还可以继续修改。';
         await this.persistDraft();
         return;
       }
 
-      const current: DemoRecipeDraft = {
-        name: this.draftName,
-        steps: this.draftSteps,
-        ingredients: this.draftIngredients,
-        seasonings: this.draftSeasonings,
-        experience: this.draftExperience
-      };
-      const revision: DemoRevisionResult = reviseDemoRecipe(current, message);
+      const revised: AiRecipeDraft = await this.aiService.revise(this.currentAiRecipe(), message);
+      this.aiOnline = true;
       this.latestInstruction = message;
-      this.assistantReply = revision.reply;
+      this.assistantReply = '已经按你刚才的要求更新了卡片。';
       this.composerText = '';
-      if (revision.changed) {
-        this.applyGeneratedRecipe(revision.recipe);
-      }
+      this.applyAiRecipe(revised);
       await this.persistDraft();
-    } catch {
-      this.statusMessage = '这次没有整理成功，原内容已经保留，可以重试';
+    } catch (error) {
+      this.aiOnline = false;
+      this.statusMessage = this.aiErrorMessage(error as Error);
     } finally {
       this.isWorking = false;
     }
@@ -300,6 +368,7 @@ struct Index {
     this.hasDraft = false;
     this.hasQuestion = false;
     this.questionText = '';
+    this.questionIds = [];
     this.latestInstruction = '';
     this.assistantReply = '';
     this.draftName = '';
@@ -683,7 +752,8 @@ struct Index {
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
             .fontColor(JADE)
-          Text(this.hasDraft ? '草稿已自动保存在本机' : '把做成功的味道记下来')
+          Text(this.isWorking ? 'DeepSeek 正在整理…' :
+            (this.hasDraft ? '草稿已自动保存在本机' : '把做成功的味道记下来'))
             .width('100%')
             .fontSize(12)
             .fontColor(MUTED)
@@ -700,11 +770,11 @@ struct Index {
               this.showDiscardConfirm = true;
             })
         } else {
-          Text('本地演示')
+          Text(this.aiOnline ? 'DeepSeek 在线' : 'AI 待连接')
             .fontSize(11)
-            .fontColor(JADE)
+            .fontColor(this.aiOnline ? JADE : MUTED)
             .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-            .backgroundColor(JADE_SOFT)
+            .backgroundColor(this.aiOnline ? JADE_SOFT : '#E8ECE9')
             .borderRadius(14)
         }
       }
@@ -1234,11 +1304,14 @@ struct Index {
         Column() {
           this.ProfileRow('本机菜谱', `${this.recipes.length} 道菜保存在当前设备`, '本地优先')
           Divider().color(LINE)
-          this.ProfileRow('AI 服务', '当前是本地演示整理，尚未连接腾讯云上的 DeepSeek 服务。', '演示模式')
+          this.ProfileRow('AI 服务', this.aiOnline ?
+            'DeepSeek V4 Flash 已连接，用于整理和修改结构化菜谱。' :
+            'DeepSeek 服务当前不可用；你的本地菜谱和未发送内容不会丢失。',
+            this.aiOnline ? '已连接' : '待连接')
           Divider().color(LINE)
-          this.ProfileRow('隐私说明', '对话框只处理文字；照片只作为本地菜谱封面，不用于识别，也不会上传。', '')
+          this.ProfileRow('隐私说明', '发送时，菜谱文字会经你的后端交给 DeepSeek 整理，后端不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
           Divider().color(LINE)
-          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.1.0-demo')
+          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.2.0-ai')
         }
         .width('100%')
         .padding({ left: 16, right: 16 })
