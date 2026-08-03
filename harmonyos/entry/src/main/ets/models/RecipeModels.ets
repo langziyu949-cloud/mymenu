@@ -33,6 +33,8 @@ export interface DraftRecipeVersion {
 
 export interface DraftSession {
   originalText: string;
+  questionText: string;
+  questionIds: string[];
   recipeName: string;
   steps: string[];
   ingredients: string[];

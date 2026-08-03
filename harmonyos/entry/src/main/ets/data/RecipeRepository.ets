@@ -124,6 +124,8 @@ export class RecipeRepository {
     await this.store.insert('draft_sessions', {
       id: 'active',
       original_text: draft.originalText,
+      question_text: draft.questionText,
+      question_ids_json: JSON.stringify(draft.questionIds),
       recipe_name: draft.recipeName,
       steps_json: JSON.stringify(draft.steps),
       ingredients_json: JSON.stringify(draft.ingredients),
@@ -146,6 +148,9 @@ export class RecipeRepository {
       }
       return {
         originalText: resultSet.getString(resultSet.getColumnIndex('original_text')),
+        questionText: resultSet.getString(resultSet.getColumnIndex('question_text')),
+        questionIds: JSON.parse(
+          resultSet.getString(resultSet.getColumnIndex('question_ids_json'))) as string[],
         recipeName: resultSet.getString(resultSet.getColumnIndex('recipe_name')),
         steps: JSON.parse(resultSet.getString(resultSet.getColumnIndex('steps_json'))) as string[],
         ingredients: JSON.parse(resultSet.getString(resultSet.getColumnIndex('ingredients_json'))) as string[],

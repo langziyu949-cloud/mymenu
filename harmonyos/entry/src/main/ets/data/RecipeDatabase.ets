@@ -21,6 +21,8 @@ const CREATE_DRAFT_TABLE: string =
   'CREATE TABLE IF NOT EXISTS draft_sessions (' +
     'id TEXT PRIMARY KEY, ' +
     'original_text TEXT NOT NULL, ' +
+    'question_text TEXT NOT NULL DEFAULT \'\', ' +
+    'question_ids_json TEXT NOT NULL DEFAULT \'[]\', ' +
     'recipe_name TEXT NOT NULL, ' +
     'steps_json TEXT NOT NULL, ' +
     'ingredients_json TEXT NOT NULL, ' +
@@ -41,7 +43,9 @@ const RECIPE_MIGRATIONS: string[] = [
 
 const DRAFT_MIGRATIONS: string[] = [
   'ALTER TABLE draft_sessions ADD COLUMN assistant_reply TEXT NOT NULL DEFAULT \'\'',
-  'ALTER TABLE draft_sessions ADD COLUMN history_json TEXT NOT NULL DEFAULT \'[]\''
+  'ALTER TABLE draft_sessions ADD COLUMN history_json TEXT NOT NULL DEFAULT \'[]\'',
+  'ALTER TABLE draft_sessions ADD COLUMN question_text TEXT NOT NULL DEFAULT \'\'',
+  'ALTER TABLE draft_sessions ADD COLUMN question_ids_json TEXT NOT NULL DEFAULT \'[]\''
 ];
 
 export class RecipeDatabase {

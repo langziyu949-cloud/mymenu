@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { util } from '@kit.ArkTS';
 import { RecipeRepository } from '../data/RecipeRepository';
 import { DraftRecipeVersion, DraftSession, RecipeDraft, RecipeRecord } from '../models/RecipeModels';
 import { pickRecipePhoto } from '../services/PhotoPickerService';
@@ -44,6 +45,7 @@ struct Index {
   @State draftExperience: string[] = [];
   @State statusMessage: string = '';
   @State isWorking: boolean = false;
+  @State pendingUserMessage: string = '';
   @State aiOnline: boolean = false;
 
   @State recipes: RecipeRecord[] = [];
@@ -63,14 +65,19 @@ struct Index {
   @State detailUpdatedAt: number = 0;
   @State isEditingDetail: boolean = false;
   @State editName: string = '';
+  @State editSectionIndex: number = 0;
   @State editSteps: string[] = [];
+  @State editStepIds: string[] = [];
   @State editIngredientNames: string[] = [];
   @State editIngredientAmounts: string[] = [];
   @State editIngredientEstimated: boolean[] = [];
+  @State editIngredientIds: string[] = [];
   @State editSeasoningNames: string[] = [];
   @State editSeasoningAmounts: string[] = [];
   @State editSeasoningEstimated: boolean[] = [];
+  @State editSeasoningIds: string[] = [];
   @State editExperience: string[] = [];
+  @State editExperienceIds: string[] = [];
 
   @State showPhotoPrompt: boolean = false;
   @State showDeleteConfirm: boolean = false;
@@ -122,11 +129,17 @@ struct Index {
     if (draft === null) {
       return;
     }
+    this.originalText = draft.originalText;
+    this.questionText = draft.questionText;
+    this.questionIds = draft.questionIds;
     if (draft.recipeName.length === 0) {
-      this.composerText = draft.originalText;
+      if (draft.questionText.length > 0) {
+        this.hasQuestion = true;
+      } else {
+        this.composerText = draft.originalText;
+      }
       return;
     }
-    this.originalText = draft.originalText;
     this.draftName = draft.recipeName;
     this.draftSteps = draft.steps;
     this.draftIngredients = draft.ingredients;
@@ -147,6 +160,8 @@ struct Index {
     }
     const draft: DraftSession = {
       originalText: this.hasDraft || this.hasQuestion ? this.originalText : this.composerText,
+      questionText: this.questionText,
+      questionIds: this.questionIds,
       recipeName: this.hasDraft ? this.draftName : '',
       steps: this.hasDraft ? this.draftSteps : [],
       ingredients: this.hasDraft ? this.draftIngredients : [],
@@ -189,7 +204,6 @@ struct Index {
     this.draftExperience = recipe.experience;
     this.hasDraft = true;
     this.hasQuestion = false;
-    this.questionText = '';
     this.questionIds = [];
     this.draftRenderRevision += 1;
     this.scrollConversationToBottom();
@@ -261,18 +275,21 @@ struct Index {
       this.statusMessage = '先说说这道菜是怎么做的';
       return;
     }
+    this.pendingUserMessage = message;
+    this.composerText = '';
     this.isWorking = true;
     this.statusMessage = '';
+    this.scrollConversationToBottom();
 
     try {
       if (!this.hasDraft && !this.hasQuestion) {
         const result: AiAnalyzeResult = await this.aiService.analyze(message);
         this.aiOnline = true;
         this.originalText = message;
-        this.composerText = '';
         this.applyAnalyzeResult(result);
         this.assistantReply = result.kind === 'questions' ? '' :
           'DeepSeek 已按你的描述整理好了。推测的用量已经标出，你可以继续用一句话修改。';
+        this.pendingUserMessage = '';
         await this.persistDraft();
         return;
       }
@@ -285,10 +302,10 @@ struct Index {
           throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
         }
         this.aiOnline = true;
-        this.composerText = '';
         this.latestInstruction = message;
         this.applyAiRecipe(result.recipe);
         this.assistantReply = '信息够了，DeepSeek 已整理成卡片。保存前还可以继续修改。';
+        this.pendingUserMessage = '';
         await this.persistDraft();
         return;
       }
@@ -299,14 +316,17 @@ struct Index {
       this.draftHistory = this.draftHistory.concat([previousVersion]);
       this.latestInstruction = message;
       this.assistantReply = '已经按你刚才的要求更新了卡片。';
-      this.composerText = '';
       this.applyAiRecipe(revised);
+      this.pendingUserMessage = '';
       await this.persistDraft();
     } catch (error) {
       this.aiOnline = false;
       this.statusMessage = this.aiErrorMessage(error as Error);
+      this.composerText = message;
+      this.pendingUserMessage = '';
     } finally {
       this.isWorking = false;
+      this.scrollConversationToBottom();
     }
   }
 
@@ -412,6 +432,7 @@ struct Index {
     this.draftSeasonings = [];
     this.draftExperience = [];
     this.statusMessage = '';
+    this.pendingUserMessage = '';
   }
 
   private async discardDraft(): Promise<void> {
@@ -453,15 +474,20 @@ struct Index {
   private beginDetailEdit(): void {
     this.editName = this.detailName;
     this.editSteps = this.detailSteps.slice();
+    this.editStepIds = this.editSteps.map(() => util.generateRandomUUID(true));
     const ingredients: AiRecipeItem[] = this.detailIngredients.map((item: string) => this.parseAiItem(item));
     this.editIngredientNames = ingredients.map((item: AiRecipeItem) => item.name);
     this.editIngredientAmounts = ingredients.map((item: AiRecipeItem) => item.amount);
     this.editIngredientEstimated = ingredients.map((item: AiRecipeItem) => item.isAiEstimated);
+    this.editIngredientIds = ingredients.map(() => util.generateRandomUUID(true));
     const seasonings: AiRecipeItem[] = this.detailSeasonings.map((item: string) => this.parseAiItem(item));
     this.editSeasoningNames = seasonings.map((item: AiRecipeItem) => item.name);
     this.editSeasoningAmounts = seasonings.map((item: AiRecipeItem) => item.amount);
     this.editSeasoningEstimated = seasonings.map((item: AiRecipeItem) => item.isAiEstimated);
+    this.editSeasoningIds = seasonings.map(() => util.generateRandomUUID(true));
     this.editExperience = this.detailExperience.slice();
+    this.editExperienceIds = this.editExperience.map(() => util.generateRandomUUID(true));
+    this.editSectionIndex = 0;
     this.isEditingDetail = true;
     this.statusMessage = '';
   }
@@ -510,15 +536,39 @@ struct Index {
     return updated;
   }
 
+  private moveStringItem(values: string[], from: number, to: number): string[] {
+    if (from < 0 || to < 0 || from >= values.length || to >= values.length || from === to) {
+      return values;
+    }
+    const updated: string[] = values.slice();
+    const moved: string = updated[from];
+    updated.splice(from, 1);
+    updated.splice(to, 0, moved);
+    return updated;
+  }
+
+  private moveBooleanItem(values: boolean[], from: number, to: number): boolean[] {
+    if (from < 0 || to < 0 || from >= values.length || to >= values.length || from === to) {
+      return values;
+    }
+    const updated: boolean[] = values.slice();
+    const moved: boolean = updated[from];
+    updated.splice(from, 1);
+    updated.splice(to, 0, moved);
+    return updated;
+  }
+
   private addMeasuredItem(kind: number): void {
     if (kind === 0) {
       this.editIngredientNames = this.editIngredientNames.concat(['']);
       this.editIngredientAmounts = this.editIngredientAmounts.concat(['']);
       this.editIngredientEstimated = this.editIngredientEstimated.concat([false]);
+      this.editIngredientIds = this.editIngredientIds.concat([util.generateRandomUUID(true)]);
     } else {
       this.editSeasoningNames = this.editSeasoningNames.concat(['']);
       this.editSeasoningAmounts = this.editSeasoningAmounts.concat(['']);
       this.editSeasoningEstimated = this.editSeasoningEstimated.concat([false]);
+      this.editSeasoningIds = this.editSeasoningIds.concat([util.generateRandomUUID(true)]);
     }
   }
 
@@ -527,10 +577,12 @@ struct Index {
       this.editIngredientNames = this.removeStringItem(this.editIngredientNames, index);
       this.editIngredientAmounts = this.removeStringItem(this.editIngredientAmounts, index);
       this.editIngredientEstimated = this.removeBooleanItem(this.editIngredientEstimated, index);
+      this.editIngredientIds = this.removeStringItem(this.editIngredientIds, index);
     } else {
       this.editSeasoningNames = this.removeStringItem(this.editSeasoningNames, index);
       this.editSeasoningAmounts = this.removeStringItem(this.editSeasoningAmounts, index);
       this.editSeasoningEstimated = this.removeBooleanItem(this.editSeasoningEstimated, index);
+      this.editSeasoningIds = this.removeStringItem(this.editSeasoningIds, index);
     }
   }
 
@@ -557,16 +609,20 @@ struct Index {
   private addTextItem(kind: number): void {
     if (kind === 0) {
       this.editSteps = this.editSteps.concat(['']);
+      this.editStepIds = this.editStepIds.concat([util.generateRandomUUID(true)]);
     } else {
       this.editExperience = this.editExperience.concat(['']);
+      this.editExperienceIds = this.editExperienceIds.concat([util.generateRandomUUID(true)]);
     }
   }
 
   private removeTextItem(index: number, kind: number): void {
     if (kind === 0) {
       this.editSteps = this.removeStringItem(this.editSteps, index);
+      this.editStepIds = this.removeStringItem(this.editStepIds, index);
     } else {
       this.editExperience = this.removeStringItem(this.editExperience, index);
+      this.editExperienceIds = this.removeStringItem(this.editExperienceIds, index);
     }
   }
 
@@ -576,6 +632,32 @@ struct Index {
     } else {
       this.editExperience = this.setStringItem(this.editExperience, index, value);
     }
+  }
+
+  private moveMeasuredItem(from: number, to: number, kind: number): boolean {
+    if (kind === 0) {
+      this.editIngredientNames = this.moveStringItem(this.editIngredientNames, from, to);
+      this.editIngredientAmounts = this.moveStringItem(this.editIngredientAmounts, from, to);
+      this.editIngredientEstimated = this.moveBooleanItem(this.editIngredientEstimated, from, to);
+      this.editIngredientIds = this.moveStringItem(this.editIngredientIds, from, to);
+    } else {
+      this.editSeasoningNames = this.moveStringItem(this.editSeasoningNames, from, to);
+      this.editSeasoningAmounts = this.moveStringItem(this.editSeasoningAmounts, from, to);
+      this.editSeasoningEstimated = this.moveBooleanItem(this.editSeasoningEstimated, from, to);
+      this.editSeasoningIds = this.moveStringItem(this.editSeasoningIds, from, to);
+    }
+    return true;
+  }
+
+  private moveTextItem(from: number, to: number, kind: number): boolean {
+    if (kind === 0) {
+      this.editSteps = this.moveStringItem(this.editSteps, from, to);
+      this.editStepIds = this.moveStringItem(this.editStepIds, from, to);
+    } else {
+      this.editExperience = this.moveStringItem(this.editExperience, from, to);
+      this.editExperienceIds = this.moveStringItem(this.editExperienceIds, from, to);
+    }
+    return true;
   }
 
   private async saveDetailChanges(): Promise<void> {
@@ -653,7 +735,7 @@ struct Index {
     this.pendingDeletedId = deletedId;
     this.pendingDeletedName = deletedName;
     this.undoVisible = true;
-    setTimeout(() => this.finalizeDelete(deletedId), 5000);
+    setTimeout(() => this.finalizeDelete(deletedId), 2000);
   }
 
   private async finalizeDelete(id: string): Promise<void> {
@@ -714,6 +796,27 @@ struct Index {
         .backgroundColor(CARD)
         .borderRadius({ topLeft: 4, topRight: 16, bottomLeft: 16, bottomRight: 16 })
         .constraintSize({ maxWidth: '78%' })
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+  }
+
+  @Builder
+  private ThinkingBubble() {
+    Row({ space: 10 }) {
+      this.AssistantAvatar()
+      Row({ space: 9 }) {
+        LoadingProgress()
+          .width(20)
+          .height(20)
+          .color(JADE)
+        Text('思考中')
+          .fontSize(15)
+          .fontColor(INK)
+      }
+      .padding({ left: 14, right: 16, top: 12, bottom: 12 })
+      .backgroundColor(CARD)
+      .borderRadius({ topLeft: 4, topRight: 16, bottomLeft: 16, bottomRight: 16 })
     }
     .width('100%')
     .alignItems(VerticalAlign.Top)
@@ -786,28 +889,11 @@ struct Index {
     seasonings: string[],
     steps: string[],
     experience: string[],
-    showFinish: boolean,
     versionKey: string) {
-    Row() {
-      Column() {
-        ForEach([
-          0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-          10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
-          20, 21, 22, 23
-        ], () => {
-          Circle().width(5).height(5).fill('#B7C9BF')
-        })
-      }
-      .width(24)
-      .height('100%')
-      .padding({ top: 16, bottom: 16 })
-      .justifyContent(FlexAlign.SpaceEvenly)
-      .backgroundColor('#F6F9F6')
-
-      Column({ space: 16 }) {
+    Column({ space: 16 }) {
         Row() {
           Column({ space: 4 }) {
-            Text(showFinish ? '最新菜谱' : '历史版本')
+            Text('最新菜谱')
               .width('100%')
               .fontSize(11)
               .fontColor(CHILI)
@@ -877,25 +963,21 @@ struct Index {
 
         this.DraftTextList('经验建议', experience)
 
-        if (showFinish) {
-          Button('完成菜谱')
-            .width('100%')
-            .height(48)
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .backgroundColor(this.canFinishDraft() ? CHILI : '#AEB6B1')
-            .borderRadius(14)
-            .enabled(this.canFinishDraft())
-            .onClick(() => this.finishDraft())
-        }
-      }
-      .layoutWeight(1)
-      .padding({ left: 12, right: 18, top: 18, bottom: 18 })
+        Button('完成菜谱')
+          .width('100%')
+          .height(48)
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .backgroundColor(this.canFinishDraft() ? CHILI : '#AEB6B1')
+          .borderRadius(14)
+          .enabled(this.canFinishDraft())
+          .onClick(() => this.finishDraft())
     }
     .width('100%')
+    .padding({ left: 18, right: 18, top: 18, bottom: 18 })
     .backgroundColor(CARD)
-    .borderRadius(18)
+    .borderRadius(20)
     .border({ width: 1, color: '#D7DFDA' })
     .shadow({ radius: 14, color: '#12000000', offsetY: 4 })
     .id(versionKey)
@@ -950,7 +1032,7 @@ struct Index {
             this.UserBubble(this.originalText)
           }
 
-          if (this.hasQuestion) {
+          if (this.questionText.length > 0) {
             this.AssistantBubble(this.questionText)
           }
 
@@ -960,14 +1042,6 @@ struct Index {
                 this.UserBubble(version.instruction)
               }
               this.AssistantBubble(version.assistantReply.length > 0 ? version.assistantReply : '已经整理成菜谱卡片。')
-              this.DraftRecipeCard(
-                version.recipeName,
-                version.ingredients,
-                version.seasonings,
-                version.steps,
-                version.experience,
-                false,
-                `history-${index}`)
             }, (_version: DraftRecipeVersion, index: number) => `${index}`)
 
             if (this.latestInstruction.length > 0) {
@@ -980,8 +1054,12 @@ struct Index {
               this.draftSeasonings,
               this.draftSteps,
               this.draftExperience,
-              true,
               `latest-${this.draftRenderRevision}`)
+          }
+
+          if (this.pendingUserMessage.length > 0) {
+            this.UserBubble(this.pendingUserMessage)
+            this.ThinkingBubble()
           }
 
           if (this.statusMessage.length > 0) {
@@ -1223,7 +1301,11 @@ struct Index {
                 .backgroundColor(JADE)
                 .borderRadius(12)
             } else {
-              Circle().width(6).height(6).fill(CHILI)
+              Circle()
+                .width(6)
+                .height(6)
+                .fill(CHILI)
+                .margin({ top: 8 })
             }
             Text(this.cleanEstimate(item))
               .layoutWeight(1)
@@ -1242,80 +1324,127 @@ struct Index {
 
   @Builder
   private DetailEditPage() {
-    Scroll() {
-      Column({ space: 20 }) {
-        Row({ space: 10 }) {
-          Button('‹')
-            .width(38)
-            .height(38)
-            .fontSize(27)
-            .fontColor(JADE)
-            .backgroundColor(JADE_SOFT)
-            .borderRadius(12)
-            .onClick(() => this.isEditingDetail = false)
-          Column({ space: 2 }) {
-            Text('编辑菜谱')
-              .width('100%')
-              .fontSize(24)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(JADE)
-            Text('每项单独修改，保存时自动整理')
-              .width('100%')
-              .fontSize(12)
-              .fontColor(MUTED)
-          }
-          .layoutWeight(1)
-        }
-        .width('100%')
-        if (this.statusMessage.length > 0) {
-          Text(this.statusMessage)
+    Column() {
+      Row({ space: 10 }) {
+        Button('‹')
+          .width(40)
+          .height(40)
+          .fontSize(28)
+          .fontColor(JADE)
+          .backgroundColor(JADE_SOFT)
+          .borderRadius(14)
+          .onClick(() => this.isEditingDetail = false)
+        Column({ space: 2 }) {
+          Text('编辑菜谱')
             .width('100%')
-            .fontSize(13)
-            .fontColor(CHILI)
-            .padding({ left: 2, right: 2 })
+            .fontSize(24)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(JADE)
+          Text('左右滑动切换内容，长按条目可排序')
+            .width('100%')
+            .fontSize(12)
+            .fontColor(MUTED)
         }
-        TextInput({ text: this.editName, placeholder: '菜名' })
+        .layoutWeight(1)
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 14, bottom: 10 })
+
+      Column({ space: 8 }) {
+        Text('菜名')
+          .width('100%')
+          .fontSize(12)
+          .fontColor(MUTED)
+        TextInput({ text: this.editName, placeholder: '输入菜名' })
           .width('100%')
           .height(48)
           .fontSize(18)
+          .fontColor(INK)
           .backgroundColor(CARD)
-          .borderRadius(12)
+          .border({ width: 1, color: LINE })
+          .borderRadius(14)
           .onChange((value: string) => this.editName = value)
-
-        this.MeasuredEditSection(
-          '食材及用量', '食材', this.editIngredientNames,
-          this.editIngredientAmounts, this.editIngredientEstimated, 0)
-        this.MeasuredEditSection(
-          '调料及用量', '调料', this.editSeasoningNames,
-          this.editSeasoningAmounts, this.editSeasoningEstimated, 1)
-        this.TextItemEditSection('制作步骤', '步骤', this.editSteps, 0)
-        this.TextItemEditSection('经验建议', '建议', this.editExperience, 1)
-
-        Row({ space: 10 }) {
-          Button('取消')
-            .layoutWeight(1)
-            .height(46)
-            .fontColor(JADE)
-            .backgroundColor(JADE_SOFT)
-            .borderRadius(14)
-            .onClick(() => this.isEditingDetail = false)
-          Button('保存修改')
-            .layoutWeight(1)
-            .height(46)
-            .fontColor('#FFFFFF')
-            .backgroundColor(JADE)
-            .borderRadius(14)
-            .onClick(() => this.saveDetailChanges())
+        if (this.statusMessage.length > 0) {
+          Text(this.statusMessage)
+            .width('100%')
+            .fontSize(12)
+            .fontColor(CHILI)
         }
-        .width('100%')
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 18, bottom: 28 })
+      .padding({ left: 16, right: 16, bottom: 10 })
+
+      Row({ space: 4 }) {
+        this.EditSectionTab('食材', 0)
+        this.EditSectionTab('调料', 1)
+        this.EditSectionTab('步骤', 2)
+        this.EditSectionTab('经验', 3)
+      }
+      .width('100%')
+      .height(44)
+      .padding(4)
+      .margin({ left: 16, right: 16, bottom: 10 })
+      .backgroundColor('#E7ECE8')
+      .borderRadius(14)
+
+      Swiper() {
+        this.MeasuredEditSection(
+          '食材及用量', '食材', this.editIngredientIds, this.editIngredientNames,
+          this.editIngredientAmounts, this.editIngredientEstimated, 0)
+        this.MeasuredEditSection(
+          '调料及用量', '调料', this.editSeasoningIds, this.editSeasoningNames,
+          this.editSeasoningAmounts, this.editSeasoningEstimated, 1)
+        this.TextItemEditSection('制作步骤', '步骤', this.editStepIds, this.editSteps, 0)
+        this.TextItemEditSection('经验建议', '建议', this.editExperienceIds, this.editExperience, 1)
+      }
+      .index(this.editSectionIndex)
+      .indicator(false)
+      .loop(false)
+      .layoutWeight(1)
+      .width('100%')
+      .onChange((index: number) => this.editSectionIndex = index)
+
+      Row({ space: 10 }) {
+        Button('取消')
+          .layoutWeight(1)
+          .height(48)
+          .fontColor(JADE)
+          .backgroundColor(JADE_SOFT)
+          .borderRadius(16)
+          .onClick(() => this.isEditingDetail = false)
+        Button('保存修改')
+          .layoutWeight(1)
+          .height(48)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .backgroundColor(JADE)
+          .borderRadius(16)
+          .onClick(() => this.saveDetailChanges())
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 10, bottom: 12 })
+      .backgroundColor(CARD)
+      .border({ width: { top: 1 }, color: LINE })
     }
     .width('100%')
     .height('100%')
-    .scrollBar(BarState.Off)
     .backgroundColor(PAPER)
+  }
+
+  @Builder
+  private EditSectionTab(label: string, index: number) {
+    Text(label)
+      .layoutWeight(1)
+      .height(36)
+      .fontSize(13)
+      .fontWeight(this.editSectionIndex === index ? FontWeight.Bold : FontWeight.Regular)
+      .fontColor(this.editSectionIndex === index ? JADE : MUTED)
+      .textAlign(TextAlign.Center)
+      .backgroundColor(this.editSectionIndex === index ? CARD : '#00000000')
+      .borderRadius(11)
+      .shadow(this.editSectionIndex === index ? { radius: 5, color: '#12000000', offsetY: 2 } :
+        { radius: 0, color: '#00000000', offsetY: 0 })
+      .onClick(() => this.editSectionIndex = index)
   }
 
   @Builder
@@ -1348,15 +1477,11 @@ struct Index {
   private MeasuredEditItem(name: string, amount: string, estimated: boolean, index: number, kind: number) {
     Column({ space: 10 }) {
       Row({ space: 9 }) {
-        Text(`${index + 1}`)
-          .width(26)
-          .height(26)
-          .fontSize(12)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
+        Text('≡')
+          .width(24)
+          .fontSize(20)
+          .fontColor('#9AA39E')
           .textAlign(TextAlign.Center)
-          .backgroundColor(kind === 0 ? JADE : CHILI)
-          .borderRadius(13)
         TextInput({ text: name, placeholder: kind === 0 ? '食材名称' : '调料名称' })
           .layoutWeight(1)
           .height(42)
@@ -1365,43 +1490,50 @@ struct Index {
           .backgroundColor('#F3F6F3')
           .borderRadius(10)
           .onChange((value: string) => this.updateMeasuredName(value, index, kind))
-        Button('删除')
+        Button('×', { type: ButtonType.Circle })
+          .width(34)
           .height(34)
-          .fontSize(12)
+          .fontSize(18)
           .fontColor('#A44332')
           .backgroundColor('#F8E7E3')
-          .borderRadius(10)
           .onClick(() => this.removeMeasuredItem(index, kind))
       }
       .width('100%')
 
-      Row({ space: 9 }) {
-        Text('用量')
-          .width(34)
+      Row({ space: 8 }) {
+        Text(`${index + 1}`)
+          .width(24)
           .fontSize(12)
           .fontColor(MUTED)
-        TextInput({ text: amount, placeholder: '可直接输入' })
-          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+        Row() {
+          TextInput({ text: amount, placeholder: '输入用量' })
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(14)
+            .fontColor(INK)
+            .backgroundColor('#00000000')
+            .onChange((value: string) => this.updateMeasuredAmount(value, index, kind))
+          Select([
+            { value: '适量' }, { value: '少许' }, { value: '半个' }, { value: '1个' },
+            { value: '2个' }, { value: '10个' }, { value: '半勺' }, { value: '1勺' },
+            { value: '半瓶' }, { value: '1瓶' }, { value: '1杯' }, { value: '10克' },
+            { value: '100克' }, { value: '10毫升' }
+          ])
+          .width(92)
           .height(42)
-          .fontSize(14)
-          .fontColor(INK)
-          .backgroundColor('#F3F6F3')
-          .borderRadius(10)
-          .onChange((value: string) => this.updateMeasuredAmount(value, index, kind))
-        Select([
-          { value: '适量' }, { value: '少许' }, { value: '半个' }, { value: '1个' },
-          { value: '2个' }, { value: '10个' }, { value: '半勺' }, { value: '1勺' },
-          { value: '半瓶' }, { value: '1瓶' }, { value: '1杯' }, { value: '10克' },
-          { value: '100克' }, { value: '10毫升' }
-        ])
-          .width(116)
-          .height(42)
-          .value('常用用量')
-          .font({ size: 13, weight: FontWeight.Medium })
+          .value('常用')
+          .font({ size: 12, weight: FontWeight.Medium })
           .fontColor(JADE)
           .backgroundColor(JADE_SOFT)
-          .borderRadius(10)
+          .borderRadius({ topLeft: 0, topRight: 11, bottomLeft: 0, bottomRight: 11 })
           .onSelect((_selected: number, value: string) => this.updateMeasuredAmount(value, index, kind))
+        }
+        .layoutWeight(1)
+        .height(42)
+        .backgroundColor('#F3F6F3')
+        .borderRadius(11)
+        .clip(true)
       }
       .width('100%')
 
@@ -1416,12 +1548,13 @@ struct Index {
     .padding(12)
     .backgroundColor(CARD)
     .border({ width: 1, color: LINE })
-    .borderRadius(14)
+    .borderRadius(16)
   }
 
   @Builder
   private MeasuredEditSection(
-    title: string, addLabel: string, names: string[], amounts: string[], estimated: boolean[], kind: number) {
+    title: string, addLabel: string, ids: string[], names: string[], amounts: string[],
+    estimated: boolean[], kind: number) {
     Column({ space: 10 }) {
       this.EditSectionHeader(title, `添加${addLabel}`, kind, true)
       if (names.length === 0) {
@@ -1433,21 +1566,39 @@ struct Index {
           .backgroundColor('#E9EFEB')
           .borderRadius(12)
       } else {
-        ForEach(names, (name: string, index: number) => {
-          this.MeasuredEditItem(
-            name,
-            index < amounts.length ? amounts[index] : '',
-            index < estimated.length ? estimated[index] : false,
-            index,
-            kind)
-        }, (_name: string, index: number) => `${kind}-${index}`)
+        List({ space: 10 }) {
+          ForEach(ids, (_id: string, index: number) => {
+            ListItem() {
+              this.MeasuredEditItem(
+                index < names.length ? names[index] : '',
+                index < amounts.length ? amounts[index] : '',
+                index < estimated.length ? estimated[index] : false,
+                index,
+                kind)
+            }
+            .editable(true)
+          }, (id: string) => id)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+        .onItemMove((from: number, to: number) => this.moveMeasuredItem(from, to, kind))
       }
+      Text('≡  长按任意条目拖动排序')
+        .width('100%')
+        .fontSize(11)
+        .fontColor(MUTED)
+        .textAlign(TextAlign.Center)
     }
     .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16, top: 12, bottom: 8 })
+    .backgroundColor(CARD)
+    .borderRadius({ topLeft: 20, topRight: 20, bottomLeft: 0, bottomRight: 0 })
   }
 
   @Builder
-  private TextItemEditSection(title: string, addLabel: string, items: string[], kind: number) {
+  private TextItemEditSection(title: string, addLabel: string, ids: string[], items: string[], kind: number) {
     Column({ space: 10 }) {
       this.EditSectionHeader(title, `添加${addLabel}`, kind, false)
       if (items.length === 0) {
@@ -1459,48 +1610,62 @@ struct Index {
           .backgroundColor('#E9EFEB')
           .borderRadius(12)
       } else {
-        ForEach(items, (item: string, index: number) => {
-          Row({ space: 10 }) {
-            Text(kind === 0 ? `${index + 1}` : '记')
-              .width(28)
-              .height(28)
-              .fontSize(12)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-              .textAlign(TextAlign.Center)
-              .backgroundColor(kind === 0 ? JADE : CHILI)
-              .borderRadius(14)
-            TextArea({
-              text: item,
-              placeholder: kind === 0 ? `第 ${index + 1} 步怎么做` : '记录一条下次还想记得的经验'
-            })
-              .layoutWeight(1)
-              .height(kind === 0 ? 82 : 72)
-              .fontSize(14)
-              .lineHeight(21)
-              .fontColor(INK)
-              .backgroundColor('#F3F6F3')
-              .borderRadius(10)
-              .padding(10)
-              .onChange((value: string) => this.updateTextItem(value, index, kind))
-            Button('删除')
-              .height(34)
-              .fontSize(12)
-              .fontColor('#A44332')
-              .backgroundColor('#F8E7E3')
-              .borderRadius(10)
-              .onClick(() => this.removeTextItem(index, kind))
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Top)
-          .padding(12)
-          .backgroundColor(CARD)
-          .border({ width: 1, color: LINE })
-          .borderRadius(14)
-        }, (_item: string, index: number) => `${kind}-${index}`)
+        List({ space: 10 }) {
+          ForEach(ids, (_id: string, index: number) => {
+            ListItem() {
+              Row({ space: 10 }) {
+                Text('≡')
+                  .width(24)
+                  .fontSize(20)
+                  .fontColor('#9AA39E')
+                  .textAlign(TextAlign.Center)
+                TextArea({
+                  text: index < items.length ? items[index] : '',
+                  placeholder: kind === 0 ? `第 ${index + 1} 步怎么做` : '记录一条下次还想记得的经验'
+                })
+                  .layoutWeight(1)
+                  .height(kind === 0 ? 88 : 76)
+                  .fontSize(14)
+                  .lineHeight(21)
+                  .fontColor(INK)
+                  .backgroundColor('#F3F6F3')
+                  .borderRadius(11)
+                  .padding(10)
+                  .onChange((value: string) => this.updateTextItem(value, index, kind))
+                Button('×', { type: ButtonType.Circle })
+                  .width(34)
+                  .height(34)
+                  .fontSize(18)
+                  .fontColor('#A44332')
+                  .backgroundColor('#F8E7E3')
+                  .onClick(() => this.removeTextItem(index, kind))
+              }
+              .width('100%')
+              .alignItems(VerticalAlign.Top)
+              .padding(12)
+              .backgroundColor(CARD)
+              .border({ width: 1, color: LINE })
+              .borderRadius(16)
+            }
+            .editable(true)
+          }, (id: string) => id)
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+        .onItemMove((from: number, to: number) => this.moveTextItem(from, to, kind))
       }
+      Text('≡  长按任意条目拖动排序')
+        .width('100%')
+        .fontSize(11)
+        .fontColor(MUTED)
+        .textAlign(TextAlign.Center)
     }
     .width('100%')
+    .height('100%')
+    .padding({ left: 16, right: 16, top: 12, bottom: 8 })
+    .backgroundColor(CARD)
+    .borderRadius({ topLeft: 20, topRight: 20, bottomLeft: 0, bottomRight: 0 })
   }
 
   @Builder
@@ -1665,7 +1830,7 @@ struct Index {
           Divider().color(LINE)
           this.ProfileRow('隐私说明', '发送时，菜谱文字会经你的后端交给 DeepSeek 整理，后端不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
           Divider().color(LINE)
-          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.2.1-ai')
+          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.3.0')
         }
         .width('100%')
         .padding({ left: 16, right: 16 })
@@ -1933,7 +2098,7 @@ struct Index {
         this.PhotoPrompt()
       }
       if (this.showDeleteConfirm) {
-        this.ConfirmDialog('删除这道菜谱？', '删除后有 5 秒可以撤销，之后会从本机菜谱夹中移除。', 0)
+        this.ConfirmDialog('删除这道菜谱？', '删除后有 2 秒可以撤销，之后会从本机菜谱夹中移除。', 0)
       }
       if (this.showDiscardConfirm) {
         this.ConfirmDialog('放弃当前草稿？', '已经整理的内容会被清空，这个操作不能恢复。', 1)
