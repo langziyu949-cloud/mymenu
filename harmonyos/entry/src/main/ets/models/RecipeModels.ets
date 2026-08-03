@@ -21,6 +21,16 @@ export interface RecipeRecord {
   updatedAt: number;
 }
 
+export interface DraftRecipeVersion {
+  recipeName: string;
+  steps: string[];
+  ingredients: string[];
+  seasonings: string[];
+  experience: string[];
+  instruction: string;
+  assistantReply: string;
+}
+
 export interface DraftSession {
   originalText: string;
   recipeName: string;
@@ -29,5 +39,7 @@ export interface DraftSession {
   seasonings: string[];
   experience: string[];
   lastInstruction: string;
+  assistantReply: string;
+  history: DraftRecipeVersion[];
   updatedAt: number;
 }

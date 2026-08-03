@@ -2,7 +2,7 @@ import { relationalStore } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { RecipeDatabase } from './RecipeDatabase';
-import { DraftSession, RecipeDraft, RecipeRecord } from '../models/RecipeModels';
+import { DraftRecipeVersion, DraftSession, RecipeDraft, RecipeRecord } from '../models/RecipeModels';
 
 export class RecipeRepository {
   private readonly store: relationalStore.RdbStore;
@@ -130,6 +130,8 @@ export class RecipeRepository {
       seasonings_json: JSON.stringify(draft.seasonings),
       experience_json: JSON.stringify(draft.experience),
       last_instruction: draft.lastInstruction,
+      assistant_reply: draft.assistantReply,
+      history_json: JSON.stringify(draft.history),
       updated_at: draft.updatedAt
     });
   }
@@ -150,6 +152,9 @@ export class RecipeRepository {
         seasonings: JSON.parse(resultSet.getString(resultSet.getColumnIndex('seasonings_json'))) as string[],
         experience: JSON.parse(resultSet.getString(resultSet.getColumnIndex('experience_json'))) as string[],
         lastInstruction: resultSet.getString(resultSet.getColumnIndex('last_instruction')),
+        assistantReply: resultSet.getString(resultSet.getColumnIndex('assistant_reply')),
+        history: JSON.parse(
+          resultSet.getString(resultSet.getColumnIndex('history_json'))) as DraftRecipeVersion[],
         updatedAt: resultSet.getLong(resultSet.getColumnIndex('updated_at'))
       };
     } finally {

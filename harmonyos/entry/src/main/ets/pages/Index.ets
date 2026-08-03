@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { RecipeRepository } from '../data/RecipeRepository';
-import { DraftSession, RecipeDraft, RecipeRecord } from '../models/RecipeModels';
+import { DraftRecipeVersion, DraftSession, RecipeDraft, RecipeRecord } from '../models/RecipeModels';
 import { pickRecipePhoto } from '../services/PhotoPickerService';
 import {
   AiAnalyzeResult,
@@ -35,6 +35,7 @@ struct Index {
   @State questionIds: string[] = [];
   @State latestInstruction: string = '';
   @State assistantReply: string = '';
+  @State draftHistory: DraftRecipeVersion[] = [];
   @State draftName: string = '';
   @State draftSteps: string[] = [];
   @State draftIngredients: string[] = [];
@@ -85,6 +86,7 @@ struct Index {
 
   private repository: RecipeRepository | null = null;
   private readonly aiService: RecipeAiService = new RecipeAiService();
+  private readonly conversationScroller: Scroller = new Scroller();
 
   aboutToAppear(): void {
     this.initialize();
@@ -130,8 +132,11 @@ struct Index {
     this.draftSeasonings = draft.seasonings;
     this.draftExperience = draft.experience;
     this.latestInstruction = draft.lastInstruction;
-    this.assistantReply = '未完成的菜谱已经恢复，可以继续告诉我怎么改。';
+    this.assistantReply = draft.assistantReply.length > 0 ? draft.assistantReply :
+      '未完成的菜谱已经恢复，可以继续告诉我怎么改。';
+    this.draftHistory = draft.history;
     this.hasDraft = true;
+    this.scrollConversationToBottom();
   }
 
   private async persistDraft(): Promise<void> {
@@ -146,6 +151,8 @@ struct Index {
       seasonings: this.hasDraft ? this.draftSeasonings : [],
       experience: this.hasDraft ? this.draftExperience : [],
       lastInstruction: this.latestInstruction,
+      assistantReply: this.assistantReply,
+      history: this.hasDraft ? this.draftHistory : [],
       updatedAt: Date.now()
     };
     await this.repository.saveDraft(draft);
@@ -182,6 +189,11 @@ struct Index {
     this.hasQuestion = false;
     this.questionText = '';
     this.questionIds = [];
+    this.scrollConversationToBottom();
+  }
+
+  private scrollConversationToBottom(): void {
+    setTimeout((): void => this.conversationScroller.scrollEdge(Edge.Bottom), 80);
   }
 
   private currentAiRecipe(): AiRecipeDraft {
@@ -191,6 +203,18 @@ struct Index {
       seasonings: this.draftSeasonings.map((item: string) => this.parseAiItem(item)),
       steps: this.draftSteps,
       experience: this.draftExperience
+    };
+  }
+
+  private currentDraftVersion(): DraftRecipeVersion {
+    return {
+      recipeName: this.draftName,
+      steps: this.draftSteps.slice(),
+      ingredients: this.draftIngredients.slice(),
+      seasonings: this.draftSeasonings.slice(),
+      experience: this.draftExperience.slice(),
+      instruction: this.latestInstruction,
+      assistantReply: this.assistantReply
     };
   }
 
@@ -266,8 +290,10 @@ struct Index {
         return;
       }
 
+      const previousVersion: DraftRecipeVersion = this.currentDraftVersion();
       const revised: AiRecipeDraft = await this.aiService.revise(this.currentAiRecipe(), message);
       this.aiOnline = true;
+      this.draftHistory = this.draftHistory.concat([previousVersion]);
       this.latestInstruction = message;
       this.assistantReply = '已经按你刚才的要求更新了卡片。';
       this.composerText = '';
@@ -375,6 +401,7 @@ struct Index {
     this.questionIds = [];
     this.latestInstruction = '';
     this.assistantReply = '';
+    this.draftHistory = [];
     this.draftName = '';
     this.draftSteps = [];
     this.draftIngredients = [];
@@ -734,7 +761,7 @@ struct Index {
         .fontColor(JADE)
         .letterSpacing(0.5)
       if (items.length === 0) {
-        Text('没有补充，不影响保存')
+        Text('暂未提到')
           .width('100%')
           .fontSize(13)
           .fontColor(MUTED)
@@ -749,26 +776,38 @@ struct Index {
   }
 
   @Builder
-  private DraftRecipeCard() {
+  private DraftRecipeCard(
+    recipeName: string,
+    ingredients: string[],
+    seasonings: string[],
+    steps: string[],
+    experience: string[],
+    showFinish: boolean) {
     Row() {
-      Column({ space: 8 }) {
-        ForEach([0, 1, 2, 3, 4, 5, 6], () => {
-          Circle().width(6).height(6).fill('#B7C6BD')
+      Column() {
+        ForEach([
+          0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+          10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+          20, 21, 22, 23
+        ], () => {
+          Circle().width(5).height(5).fill('#B7C9BF')
         })
       }
-      .width(18)
+      .width(24)
       .height('100%')
-      .justifyContent(FlexAlign.SpaceAround)
+      .padding({ top: 16, bottom: 16 })
+      .justifyContent(FlexAlign.SpaceEvenly)
+      .backgroundColor('#F6F9F6')
 
       Column({ space: 16 }) {
         Row() {
           Column({ space: 4 }) {
-            Text('整理好的菜谱')
+            Text(showFinish ? '最新菜谱' : '历史版本')
               .width('100%')
               .fontSize(11)
               .fontColor(CHILI)
               .letterSpacing(1)
-            Text(this.draftName)
+            Text(recipeName)
               .width('100%')
               .fontSize(24)
               .fontWeight(FontWeight.Bold)
@@ -788,19 +827,19 @@ struct Index {
         .width('100%')
 
         Row({ space: 10 }) {
-          Text(`${this.draftIngredients.length} 种食材`)
+          Text(`${ingredients.length} 种食材`)
             .fontSize(12)
             .fontColor(MUTED)
           Text('·').fontColor('#B5BBB7')
-          Text(`${this.draftSteps.length} 个步骤`)
+          Text(`${steps.length} 个步骤`)
             .fontSize(12)
             .fontColor(MUTED)
         }
         .width('100%')
 
         Divider().color(LINE)
-        this.DraftTextList('食材及用量', this.draftIngredients)
-        this.DraftTextList('调料及用量', this.draftSeasonings)
+        this.DraftTextList('食材及用量', ingredients)
+        this.DraftTextList('调料及用量', seasonings)
 
         Column({ space: 10 }) {
           Text('制作步骤')
@@ -808,7 +847,7 @@ struct Index {
             .fontSize(13)
             .fontWeight(FontWeight.Bold)
             .fontColor(JADE)
-          ForEach(this.draftSteps, (step: string, index: number) => {
+          ForEach(steps, (step: string, index: number) => {
             Row({ space: 10 }) {
               Text(`${index + 1}`)
                 .fontSize(12)
@@ -831,30 +870,23 @@ struct Index {
         }
         .width('100%')
 
-        this.DraftTextList('经验建议', this.draftExperience)
+        this.DraftTextList('经验建议', experience)
 
-        Text('继续在下方告诉我怎么改，例如“老抽改成半勺”')
-          .width('100%')
-          .fontSize(12)
-          .lineHeight(18)
-          .fontColor(MUTED)
-          .padding(10)
-          .backgroundColor('#EEF3EF')
-          .borderRadius(10)
-
-        Button('完成菜谱')
-          .width('100%')
-          .height(48)
-          .fontSize(16)
-          .fontWeight(FontWeight.Bold)
-          .fontColor('#FFFFFF')
-          .backgroundColor(this.canFinishDraft() ? CHILI : '#AEB6B1')
-          .borderRadius(14)
-          .enabled(this.canFinishDraft())
-          .onClick(() => this.finishDraft())
+        if (showFinish) {
+          Button('完成菜谱')
+            .width('100%')
+            .height(48)
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+            .backgroundColor(this.canFinishDraft() ? CHILI : '#AEB6B1')
+            .borderRadius(14)
+            .enabled(this.canFinishDraft())
+            .onClick(() => this.finishDraft())
+        }
       }
       .layoutWeight(1)
-      .padding({ left: 8, right: 18, top: 18, bottom: 18 })
+      .padding({ left: 12, right: 18, top: 18, bottom: 18 })
     }
     .width('100%')
     .backgroundColor(CARD)
@@ -904,7 +936,7 @@ struct Index {
       .padding({ left: 18, right: 18 })
       .backgroundColor(CARD)
 
-      Scroll() {
+      Scroll(this.conversationScroller) {
         Column({ space: 14 }) {
           this.AssistantBubble('今天做了什么好吃的？直接说菜名、用料和做法，我会在对话里整理成菜谱。')
 
@@ -917,11 +949,31 @@ struct Index {
           }
 
           if (this.hasDraft) {
+            ForEach(this.draftHistory, (version: DraftRecipeVersion, index: number) => {
+              if (version.instruction.length > 0) {
+                this.UserBubble(version.instruction)
+              }
+              this.AssistantBubble(version.assistantReply.length > 0 ? version.assistantReply : '已经整理成菜谱卡片。')
+              this.DraftRecipeCard(
+                version.recipeName,
+                version.ingredients,
+                version.seasonings,
+                version.steps,
+                version.experience,
+                false)
+            }, (_version: DraftRecipeVersion, index: number) => `${index}`)
+
             if (this.latestInstruction.length > 0) {
               this.UserBubble(this.latestInstruction)
             }
             this.AssistantBubble(this.assistantReply.length > 0 ? this.assistantReply : '我整理成卡片了，你可以继续告诉我怎么改。')
-            this.DraftRecipeCard()
+            this.DraftRecipeCard(
+              this.draftName,
+              this.draftIngredients,
+              this.draftSeasonings,
+              this.draftSteps,
+              this.draftExperience,
+              true)
           }
 
           if (this.statusMessage.length > 0) {
@@ -940,7 +992,7 @@ struct Index {
       .width('100%')
       .scrollBar(BarState.Off)
 
-      Column({ space: 8 }) {
+      Column() {
         Row({ space: 10 }) {
           TextArea({
             text: this.composerText,
@@ -974,14 +1026,9 @@ struct Index {
         }
         .width('100%')
 
-        Text('可使用系统输入法语音输入 · 对话框不识别照片')
-          .width('100%')
-          .fontSize(10)
-          .fontColor(MUTED)
-          .textAlign(TextAlign.Center)
       }
       .width('100%')
-      .padding({ left: 14, right: 14, top: 10, bottom: 9 })
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
       .backgroundColor(CARD)
       .border({ width: { top: 1 }, color: LINE })
     }
