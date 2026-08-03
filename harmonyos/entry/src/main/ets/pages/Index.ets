@@ -23,6 +23,10 @@ const MUTED: string = '#707A75';
 const LINE: string = '#DDE3DF';
 const ESTIMATE: string = '#FFF0D8';
 const ESTIMATE_TEXT: string = '#8A5B13';
+const COMMON_AMOUNTS: string[] = [
+  '适量', '少许', '半个', '1个', '2个', '10个', '半勺', '1勺',
+  '半瓶', '1瓶', '1杯', '10克', '100克', '10毫升'
+];
 
 @Entry
 @Component
@@ -78,6 +82,8 @@ struct Index {
   @State editSeasoningIds: string[] = [];
   @State editExperience: string[] = [];
   @State editExperienceIds: string[] = [];
+  @State editDragPreviewText: string = '';
+  @State editFeedbackMessage: string = '';
 
   @State showPhotoPrompt: boolean = false;
   @State showDeleteConfirm: boolean = false;
@@ -488,6 +494,7 @@ struct Index {
     this.editExperience = this.detailExperience.slice();
     this.editExperienceIds = this.editExperience.map(() => util.generateRandomUUID(true));
     this.editSectionIndex = 0;
+    this.editFeedbackMessage = '';
     this.isEditingDetail = true;
     this.statusMessage = '';
   }
@@ -572,7 +579,19 @@ struct Index {
     }
   }
 
-  private removeMeasuredItem(index: number, kind: number): void {
+  private measuredItemIndex(id: string, kind: number): number {
+    return kind === 0 ? this.editIngredientIds.indexOf(id) : this.editSeasoningIds.indexOf(id);
+  }
+
+  private textItemIndex(id: string, kind: number): number {
+    return kind === 0 ? this.editStepIds.indexOf(id) : this.editExperienceIds.indexOf(id);
+  }
+
+  private removeMeasuredItem(id: string, kind: number): void {
+    const index: number = this.measuredItemIndex(id, kind);
+    if (index < 0) {
+      return;
+    }
     if (kind === 0) {
       this.editIngredientNames = this.removeStringItem(this.editIngredientNames, index);
       this.editIngredientAmounts = this.removeStringItem(this.editIngredientAmounts, index);
@@ -586,7 +605,11 @@ struct Index {
     }
   }
 
-  private updateMeasuredName(value: string, index: number, kind: number): void {
+  private updateMeasuredName(value: string, id: string, kind: number): void {
+    const index: number = this.measuredItemIndex(id, kind);
+    if (index < 0) {
+      return;
+    }
     if (kind === 0) {
       this.editIngredientNames = this.setStringItem(this.editIngredientNames, index, value);
       this.editIngredientEstimated = this.setBooleanItem(this.editIngredientEstimated, index, false);
@@ -596,7 +619,11 @@ struct Index {
     }
   }
 
-  private updateMeasuredAmount(value: string, index: number, kind: number): void {
+  private updateMeasuredAmount(value: string, id: string, kind: number): void {
+    const index: number = this.measuredItemIndex(id, kind);
+    if (index < 0) {
+      return;
+    }
     if (kind === 0) {
       this.editIngredientAmounts = this.setStringItem(this.editIngredientAmounts, index, value);
       this.editIngredientEstimated = this.setBooleanItem(this.editIngredientEstimated, index, false);
@@ -604,6 +631,27 @@ struct Index {
       this.editSeasoningAmounts = this.setStringItem(this.editSeasoningAmounts, index, value);
       this.editSeasoningEstimated = this.setBooleanItem(this.editSeasoningEstimated, index, false);
     }
+  }
+
+  private chooseMeasuredAmount(value: string, id: string, kind: number): void {
+    const index: number = this.measuredItemIndex(id, kind);
+    if (index < 0) {
+      return;
+    }
+    this.updateMeasuredAmount(value, id, kind);
+    const replacementId: string = util.generateRandomUUID(true);
+    if (kind === 0) {
+      this.editIngredientIds = this.setStringItem(this.editIngredientIds, index, replacementId);
+    } else {
+      this.editSeasoningIds = this.setStringItem(this.editSeasoningIds, index, replacementId);
+    }
+  }
+
+  private commonAmountMenu(id: string, kind: number): MenuElement[] {
+    return COMMON_AMOUNTS.map((amount: string): MenuElement => ({
+      value: amount,
+      action: (): void => this.chooseMeasuredAmount(amount, id, kind)
+    }));
   }
 
   private addTextItem(kind: number): void {
@@ -616,7 +664,11 @@ struct Index {
     }
   }
 
-  private removeTextItem(index: number, kind: number): void {
+  private removeTextItem(id: string, kind: number): void {
+    const index: number = this.textItemIndex(id, kind);
+    if (index < 0) {
+      return;
+    }
     if (kind === 0) {
       this.editSteps = this.removeStringItem(this.editSteps, index);
       this.editStepIds = this.removeStringItem(this.editStepIds, index);
@@ -626,7 +678,11 @@ struct Index {
     }
   }
 
-  private updateTextItem(value: string, index: number, kind: number): void {
+  private updateTextItem(value: string, id: string, kind: number): void {
+    const index: number = this.textItemIndex(id, kind);
+    if (index < 0) {
+      return;
+    }
     if (kind === 0) {
       this.editSteps = this.setStringItem(this.editSteps, index, value);
     } else {
@@ -658,6 +714,43 @@ struct Index {
       this.editExperienceIds = this.moveStringItem(this.editExperienceIds, from, to);
     }
     return true;
+  }
+
+  private measuredItemLabel(index: number, kind: number): string {
+    if (kind === 0) {
+      return index >= 0 && index < this.editIngredientNames.length ? this.editIngredientNames[index] : '食材';
+    }
+    return index >= 0 && index < this.editSeasoningNames.length ? this.editSeasoningNames[index] : '调料';
+  }
+
+  private textItemLabel(index: number, kind: number): string {
+    if (kind === 0) {
+      return index >= 0 && index < this.editSteps.length ? this.editSteps[index] : '制作步骤';
+    }
+    return index >= 0 && index < this.editExperience.length ? this.editExperience[index] : '经验建议';
+  }
+
+  private normalizedDropIndex(itemIndex: number, insertIndex: number, length: number): number {
+    if (length === 0 || itemIndex < 0 || itemIndex >= length || insertIndex < 0) {
+      return -1;
+    }
+    return Math.max(0, Math.min(insertIndex, length - 1));
+  }
+
+  private dropMeasuredItem(itemIndex: number, insertIndex: number, kind: number): void {
+    const length: number = kind === 0 ? this.editIngredientIds.length : this.editSeasoningIds.length;
+    const target: number = this.normalizedDropIndex(itemIndex, insertIndex, length);
+    if (target >= 0) {
+      this.moveMeasuredItem(itemIndex, target, kind);
+    }
+  }
+
+  private dropTextItem(itemIndex: number, insertIndex: number, kind: number): void {
+    const length: number = kind === 0 ? this.editStepIds.length : this.editExperienceIds.length;
+    const target: number = this.normalizedDropIndex(itemIndex, insertIndex, length);
+    if (target >= 0) {
+      this.moveTextItem(itemIndex, target, kind);
+    }
   }
 
   private async saveDetailChanges(): Promise<void> {
@@ -859,7 +952,7 @@ struct Index {
   }
 
   @Builder
-  private DraftTextList(title: string, items: string[]) {
+  private DraftTextList(title: string, kind: number) {
     Column({ space: 5 }) {
       Text(title)
         .width('100%')
@@ -867,29 +960,35 @@ struct Index {
         .fontWeight(FontWeight.Bold)
         .fontColor(JADE)
         .letterSpacing(0.5)
-      if (items.length === 0) {
+      if ((kind === 0 && this.draftIngredients.length === 0) ||
+        (kind === 1 && this.draftSeasonings.length === 0) ||
+        (kind === 2 && this.draftExperience.length === 0)) {
         Text('暂未提到')
           .width('100%')
           .fontSize(13)
           .fontColor(MUTED)
           .padding({ top: 6, bottom: 6 })
       } else {
-        ForEach(items, (item: string) => {
-          this.EstimateItem(item)
-        }, (item: string, index: number) => `${index}-${item}`)
+        if (kind === 0) {
+          ForEach(this.draftIngredients, (item: string) => {
+            this.EstimateItem(item)
+          }, (item: string, index: number) => `${index}-${item}`)
+        } else if (kind === 1) {
+          ForEach(this.draftSeasonings, (item: string) => {
+            this.EstimateItem(item)
+          }, (item: string, index: number) => `${index}-${item}`)
+        } else {
+          ForEach(this.draftExperience, (item: string) => {
+            this.EstimateItem(item)
+          }, (item: string, index: number) => `${index}-${item}`)
+        }
       }
     }
     .width('100%')
   }
 
   @Builder
-  private DraftRecipeCard(
-    recipeName: string,
-    ingredients: string[],
-    seasonings: string[],
-    steps: string[],
-    experience: string[],
-    versionKey: string) {
+  private DraftRecipeCard() {
     Column({ space: 16 }) {
         Row() {
           Column({ space: 4 }) {
@@ -898,7 +997,7 @@ struct Index {
               .fontSize(11)
               .fontColor(CHILI)
               .letterSpacing(1)
-            Text(recipeName)
+            Text(this.draftName)
               .width('100%')
               .fontSize(24)
               .fontWeight(FontWeight.Bold)
@@ -918,19 +1017,19 @@ struct Index {
         .width('100%')
 
         Row({ space: 10 }) {
-          Text(`${ingredients.length} 种食材`)
+          Text(`${this.draftIngredients.length} 种食材`)
             .fontSize(12)
             .fontColor(MUTED)
           Text('·').fontColor('#B5BBB7')
-          Text(`${steps.length} 个步骤`)
+          Text(`${this.draftSteps.length} 个步骤`)
             .fontSize(12)
             .fontColor(MUTED)
         }
         .width('100%')
 
         Divider().color(LINE)
-        this.DraftTextList('食材及用量', ingredients)
-        this.DraftTextList('调料及用量', seasonings)
+        this.DraftTextList('食材及用量', 0)
+        this.DraftTextList('调料及用量', 1)
 
         Column({ space: 10 }) {
           Text('制作步骤')
@@ -938,7 +1037,7 @@ struct Index {
             .fontSize(13)
             .fontWeight(FontWeight.Bold)
             .fontColor(JADE)
-          ForEach(steps, (step: string, index: number) => {
+          ForEach(this.draftSteps, (step: string, index: number) => {
             Row({ space: 10 }) {
               Text(`${index + 1}`)
                 .fontSize(12)
@@ -961,7 +1060,7 @@ struct Index {
         }
         .width('100%')
 
-        this.DraftTextList('经验建议', experience)
+        this.DraftTextList('经验建议', 2)
 
         Button('完成菜谱')
           .width('100%')
@@ -980,7 +1079,7 @@ struct Index {
     .borderRadius(20)
     .border({ width: 1, color: '#D7DFDA' })
     .shadow({ radius: 14, color: '#12000000', offsetY: 4 })
-    .id(versionKey)
+    .id(`latest-${this.draftRenderRevision}`)
   }
 
   @Builder
@@ -1048,13 +1147,7 @@ struct Index {
               this.UserBubble(this.latestInstruction)
             }
             this.AssistantBubble(this.assistantReply.length > 0 ? this.assistantReply : '我整理成卡片了，你可以继续告诉我怎么改。')
-            this.DraftRecipeCard(
-              this.draftName,
-              this.draftIngredients,
-              this.draftSeasonings,
-              this.draftSteps,
-              this.draftExperience,
-              `latest-${this.draftRenderRevision}`)
+            this.DraftRecipeCard()
           }
 
           if (this.pendingUserMessage.length > 0) {
@@ -1261,7 +1354,7 @@ struct Index {
             ListItem() {
               this.RecipeListCard(recipe)
             }
-          }, (recipe: RecipeRecord) => recipe.id)
+          }, (recipe: RecipeRecord) => `${recipe.id}-${recipe.updatedAt}`)
         }
         .width('100%')
         .layoutWeight(1)
@@ -1275,47 +1368,69 @@ struct Index {
   }
 
   @Builder
-  private DetailListSection(title: string, items: string[], numbered: boolean) {
+  private DetailListItem(item: string, index: number, numbered: boolean) {
+    Row({ space: 10 }) {
+      if (numbered) {
+        Text(`${index + 1}`)
+          .fontSize(11)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .textAlign(TextAlign.Center)
+          .width(24)
+          .height(24)
+          .backgroundColor(JADE)
+          .borderRadius(12)
+      } else {
+        Circle()
+          .width(6)
+          .height(6)
+          .fill(CHILI)
+          .margin({ top: 8 })
+      }
+      Text(this.cleanEstimate(item))
+        .layoutWeight(1)
+        .fontSize(15)
+        .lineHeight(22)
+        .fontColor(INK)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+  }
+
+  @Builder
+  private DetailListSection(title: string, kind: number, numbered: boolean) {
     Column({ space: 10 }) {
       Text(title)
         .width('100%')
         .fontSize(16)
         .fontWeight(FontWeight.Bold)
         .fontColor(JADE)
-      if (items.length === 0) {
+      if ((kind === 0 && this.detailIngredients.length === 0) ||
+        (kind === 1 && this.detailSeasonings.length === 0) ||
+        (kind === 2 && this.detailSteps.length === 0) ||
+        (kind === 3 && this.detailExperience.length === 0)) {
         Text('未记录')
           .width('100%')
           .fontSize(14)
           .fontColor(MUTED)
       } else {
-        ForEach(items, (item: string, index: number) => {
-          Row({ space: 10 }) {
-            if (numbered) {
-              Text(`${index + 1}`)
-                .fontSize(11)
-                .fontWeight(FontWeight.Bold)
-                .fontColor('#FFFFFF')
-                .textAlign(TextAlign.Center)
-                .width(24)
-                .height(24)
-                .backgroundColor(JADE)
-                .borderRadius(12)
-            } else {
-              Circle()
-                .width(6)
-                .height(6)
-                .fill(CHILI)
-                .margin({ top: 8 })
-            }
-            Text(this.cleanEstimate(item))
-              .layoutWeight(1)
-              .fontSize(15)
-              .lineHeight(22)
-              .fontColor(INK)
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Top)
-        }, (item: string, index: number) => `${index}-${item}`)
+        if (kind === 0) {
+          ForEach(this.detailIngredients, (item: string, index: number) => {
+            this.DetailListItem(item, index, numbered)
+          }, (item: string, index: number) => `${index}-${item}`)
+        } else if (kind === 1) {
+          ForEach(this.detailSeasonings, (item: string, index: number) => {
+            this.DetailListItem(item, index, numbered)
+          }, (item: string, index: number) => `${index}-${item}`)
+        } else if (kind === 2) {
+          ForEach(this.detailSteps, (item: string, index: number) => {
+            this.DetailListItem(item, index, numbered)
+          }, (item: string, index: number) => `${index}-${item}`)
+        } else {
+          ForEach(this.detailExperience, (item: string, index: number) => {
+            this.DetailListItem(item, index, numbered)
+          }, (item: string, index: number) => `${index}-${item}`)
+        }
       }
     }
     .width('100%')
@@ -1370,6 +1485,12 @@ struct Index {
             .fontSize(12)
             .fontColor(CHILI)
         }
+        if (this.editFeedbackMessage.length > 0) {
+          Text(this.editFeedbackMessage)
+            .width('100%')
+            .fontSize(12)
+            .fontColor(JADE)
+        }
       }
       .width('100%')
       .padding({ left: 16, right: 16, bottom: 10 })
@@ -1388,14 +1509,10 @@ struct Index {
       .borderRadius(14)
 
       Swiper() {
-        this.MeasuredEditSection(
-          '食材及用量', '食材', this.editIngredientIds, this.editIngredientNames,
-          this.editIngredientAmounts, this.editIngredientEstimated, 0)
-        this.MeasuredEditSection(
-          '调料及用量', '调料', this.editSeasoningIds, this.editSeasoningNames,
-          this.editSeasoningAmounts, this.editSeasoningEstimated, 1)
-        this.TextItemEditSection('制作步骤', '步骤', this.editStepIds, this.editSteps, 0)
-        this.TextItemEditSection('经验建议', '建议', this.editExperienceIds, this.editExperience, 1)
+        this.MeasuredEditSection('食材及用量', '食材', 0)
+        this.MeasuredEditSection('调料及用量', '调料', 1)
+        this.TextItemEditSection('制作步骤', '步骤', 0)
+        this.TextItemEditSection('经验建议', '建议', 1)
       }
       .index(this.editSectionIndex)
       .indicator(false)
@@ -1474,7 +1591,8 @@ struct Index {
   }
 
   @Builder
-  private MeasuredEditItem(name: string, amount: string, estimated: boolean, index: number, kind: number) {
+  private MeasuredEditItem(
+    id: string, name: string, amount: string, estimated: boolean, index: number, kind: number) {
     Column({ space: 10 }) {
       Row({ space: 9 }) {
         Text('≡')
@@ -1489,14 +1607,14 @@ struct Index {
           .fontColor(INK)
           .backgroundColor('#F3F6F3')
           .borderRadius(10)
-          .onChange((value: string) => this.updateMeasuredName(value, index, kind))
+          .onChange((value: string) => this.updateMeasuredName(value, id, kind))
         Button('×', { type: ButtonType.Circle })
           .width(34)
           .height(34)
           .fontSize(18)
           .fontColor('#A44332')
           .backgroundColor('#F8E7E3')
-          .onClick(() => this.removeMeasuredItem(index, kind))
+          .onClick(() => this.removeMeasuredItem(id, kind))
       }
       .width('100%')
 
@@ -1513,21 +1631,16 @@ struct Index {
             .fontSize(14)
             .fontColor(INK)
             .backgroundColor('#00000000')
-            .onChange((value: string) => this.updateMeasuredAmount(value, index, kind))
-          Select([
-            { value: '适量' }, { value: '少许' }, { value: '半个' }, { value: '1个' },
-            { value: '2个' }, { value: '10个' }, { value: '半勺' }, { value: '1勺' },
-            { value: '半瓶' }, { value: '1瓶' }, { value: '1杯' }, { value: '10克' },
-            { value: '100克' }, { value: '10毫升' }
-          ])
-          .width(92)
-          .height(42)
-          .value('常用')
-          .font({ size: 12, weight: FontWeight.Medium })
-          .fontColor(JADE)
-          .backgroundColor(JADE_SOFT)
-          .borderRadius({ topLeft: 0, topRight: 11, bottomLeft: 0, bottomRight: 11 })
-          .onSelect((_selected: number, value: string) => this.updateMeasuredAmount(value, index, kind))
+            .onChange((value: string) => this.updateMeasuredAmount(value, id, kind))
+          Button('常用⌄')
+            .width(92)
+            .height(42)
+            .fontSize(12)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(JADE)
+            .backgroundColor(JADE_SOFT)
+            .borderRadius({ topLeft: 0, topRight: 11, bottomLeft: 0, bottomRight: 11 })
+            .bindMenu(this.commonAmountMenu(id, kind))
         }
         .layoutWeight(1)
         .height(42)
@@ -1552,12 +1665,31 @@ struct Index {
   }
 
   @Builder
-  private MeasuredEditSection(
-    title: string, addLabel: string, ids: string[], names: string[], amounts: string[],
-    estimated: boolean[], kind: number) {
+  private EditDragPreview() {
+    Row({ space: 10 }) {
+      Text('≡')
+        .fontSize(20)
+        .fontColor('#8A938E')
+      Text(this.editDragPreviewText.length > 0 ? this.editDragPreviewText : '调整顺序')
+        .fontSize(14)
+        .fontColor(INK)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .constraintSize({ minWidth: 180, maxWidth: 300 })
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .backgroundColor(CARD)
+    .border({ width: 1, color: LINE })
+    .borderRadius(16)
+    .shadow({ radius: 12, color: '#26000000', offsetY: 5 })
+  }
+
+  @Builder
+  private MeasuredEditSection(title: string, addLabel: string, kind: number) {
     Column({ space: 10 }) {
       this.EditSectionHeader(title, `添加${addLabel}`, kind, true)
-      if (names.length === 0) {
+      if ((kind === 0 && this.editIngredientIds.length === 0) ||
+        (kind === 1 && this.editSeasoningIds.length === 0)) {
         Text(`还没有${addLabel}，可按右上角添加`)
           .width('100%')
           .fontSize(13)
@@ -1567,22 +1699,46 @@ struct Index {
           .borderRadius(12)
       } else {
         List({ space: 10 }) {
-          ForEach(ids, (_id: string, index: number) => {
-            ListItem() {
-              this.MeasuredEditItem(
-                index < names.length ? names[index] : '',
-                index < amounts.length ? amounts[index] : '',
-                index < estimated.length ? estimated[index] : false,
-                index,
-                kind)
-            }
-            .editable(true)
-          }, (id: string) => id)
+          if (kind === 0) {
+            ForEach(this.editIngredientIds, (id: string, index: number) => {
+              ListItem() {
+                this.MeasuredEditItem(
+                  id,
+                  index < this.editIngredientNames.length ? this.editIngredientNames[index] : '',
+                  index < this.editIngredientAmounts.length ? this.editIngredientAmounts[index] : '',
+                  index < this.editIngredientEstimated.length ? this.editIngredientEstimated[index] : false,
+                  index,
+                  kind)
+              }
+            }, (id: string) => id)
+          } else {
+            ForEach(this.editSeasoningIds, (id: string, index: number) => {
+              ListItem() {
+                this.MeasuredEditItem(
+                  id,
+                  index < this.editSeasoningNames.length ? this.editSeasoningNames[index] : '',
+                  index < this.editSeasoningAmounts.length ? this.editSeasoningAmounts[index] : '',
+                  index < this.editSeasoningEstimated.length ? this.editSeasoningEstimated[index] : false,
+                  index,
+                  kind)
+              }
+            }, (id: string) => id)
+          }
         }
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Off)
-        .onItemMove((from: number, to: number) => this.moveMeasuredItem(from, to, kind))
+        .onItemDragStart((_event: ItemDragInfo, itemIndex: number): CustomBuilder => {
+          this.editDragPreviewText = this.measuredItemLabel(itemIndex, kind);
+          this.editFeedbackMessage = `正在拖动：${this.editDragPreviewText}`;
+          return this.EditDragPreview;
+        })
+        .onItemDrop((_event: ItemDragInfo, itemIndex: number, insertIndex: number, isSuccess: boolean) => {
+          if (isSuccess) {
+            this.dropMeasuredItem(itemIndex, insertIndex, kind);
+            this.editFeedbackMessage = '顺序已调整';
+          }
+        })
       }
       Text('≡  长按任意条目拖动排序')
         .width('100%')
@@ -1598,10 +1754,49 @@ struct Index {
   }
 
   @Builder
-  private TextItemEditSection(title: string, addLabel: string, ids: string[], items: string[], kind: number) {
+  private TextEditItem(id: string, text: string, index: number, kind: number) {
+    Row({ space: 10 }) {
+      Text('≡')
+        .width(24)
+        .fontSize(20)
+        .fontColor('#9AA39E')
+        .textAlign(TextAlign.Center)
+      TextArea({
+        text,
+        placeholder: kind === 0 ? `第 ${index + 1} 步怎么做` : '记录一条下次还想记得的经验'
+      })
+        .layoutWeight(1)
+        .constraintSize({ minHeight: 46, maxHeight: kind === 0 ? 142 : 116 })
+        .maxLines(kind === 0 ? 6 : 5)
+        .fontSize(14)
+        .lineHeight(21)
+        .fontColor(INK)
+        .backgroundColor('#F3F6F3')
+        .borderRadius(11)
+        .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+        .onChange((value: string) => this.updateTextItem(value, id, kind))
+      Button('×', { type: ButtonType.Circle })
+        .width(34)
+        .height(34)
+        .fontSize(18)
+        .fontColor('#A44332')
+        .backgroundColor('#F8E7E3')
+        .onClick(() => this.removeTextItem(id, kind))
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+    .backgroundColor(CARD)
+    .border({ width: 1, color: LINE })
+    .borderRadius(16)
+  }
+
+  @Builder
+  private TextItemEditSection(title: string, addLabel: string, kind: number) {
     Column({ space: 10 }) {
       this.EditSectionHeader(title, `添加${addLabel}`, kind, false)
-      if (items.length === 0) {
+      if ((kind === 0 && this.editStepIds.length === 0) ||
+        (kind === 1 && this.editExperienceIds.length === 0)) {
         Text(kind === 0 ? '至少添加一个制作步骤' : '没有经验建议也可以保存')
           .width('100%')
           .fontSize(13)
@@ -1611,49 +1806,42 @@ struct Index {
           .borderRadius(12)
       } else {
         List({ space: 10 }) {
-          ForEach(ids, (_id: string, index: number) => {
-            ListItem() {
-              Row({ space: 10 }) {
-                Text('≡')
-                  .width(24)
-                  .fontSize(20)
-                  .fontColor('#9AA39E')
-                  .textAlign(TextAlign.Center)
-                TextArea({
-                  text: index < items.length ? items[index] : '',
-                  placeholder: kind === 0 ? `第 ${index + 1} 步怎么做` : '记录一条下次还想记得的经验'
-                })
-                  .layoutWeight(1)
-                  .height(kind === 0 ? 88 : 76)
-                  .fontSize(14)
-                  .lineHeight(21)
-                  .fontColor(INK)
-                  .backgroundColor('#F3F6F3')
-                  .borderRadius(11)
-                  .padding(10)
-                  .onChange((value: string) => this.updateTextItem(value, index, kind))
-                Button('×', { type: ButtonType.Circle })
-                  .width(34)
-                  .height(34)
-                  .fontSize(18)
-                  .fontColor('#A44332')
-                  .backgroundColor('#F8E7E3')
-                  .onClick(() => this.removeTextItem(index, kind))
+          if (kind === 0) {
+            ForEach(this.editStepIds, (id: string, index: number) => {
+              ListItem() {
+                this.TextEditItem(
+                  id,
+                  index < this.editSteps.length ? this.editSteps[index] : '',
+                  index,
+                  kind)
               }
-              .width('100%')
-              .alignItems(VerticalAlign.Top)
-              .padding(12)
-              .backgroundColor(CARD)
-              .border({ width: 1, color: LINE })
-              .borderRadius(16)
-            }
-            .editable(true)
-          }, (id: string) => id)
+            }, (id: string) => id)
+          } else {
+            ForEach(this.editExperienceIds, (id: string, index: number) => {
+              ListItem() {
+                this.TextEditItem(
+                  id,
+                  index < this.editExperience.length ? this.editExperience[index] : '',
+                  index,
+                  kind)
+              }
+            }, (id: string) => id)
+          }
         }
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Off)
-        .onItemMove((from: number, to: number) => this.moveTextItem(from, to, kind))
+        .onItemDragStart((_event: ItemDragInfo, itemIndex: number): CustomBuilder => {
+          this.editDragPreviewText = this.textItemLabel(itemIndex, kind);
+          this.editFeedbackMessage = `正在拖动：${this.editDragPreviewText}`;
+          return this.EditDragPreview;
+        })
+        .onItemDrop((_event: ItemDragInfo, itemIndex: number, insertIndex: number, isSuccess: boolean) => {
+          if (isSuccess) {
+            this.dropTextItem(itemIndex, insertIndex, kind);
+            this.editFeedbackMessage = '顺序已调整';
+          }
+        })
       }
       Text('≡  长按任意条目拖动排序')
         .width('100%')
@@ -1747,13 +1935,13 @@ struct Index {
             .width('100%')
 
             Column({ space: 14 }) {
-              this.DetailListSection('食材及用量', this.detailIngredients, false)
+              this.DetailListSection('食材及用量', 0, false)
               Divider().color(LINE)
-              this.DetailListSection('调料及用量', this.detailSeasonings, false)
+              this.DetailListSection('调料及用量', 1, false)
               Divider().color(LINE)
-              this.DetailListSection('制作步骤', this.detailSteps, true)
+              this.DetailListSection('制作步骤', 2, true)
               Divider().color(LINE)
-              this.DetailListSection('经验建议', this.detailExperience, false)
+              this.DetailListSection('经验建议', 3, false)
             }
             .width('100%')
             .padding(18)
@@ -1830,7 +2018,7 @@ struct Index {
           Divider().color(LINE)
           this.ProfileRow('隐私说明', '发送时，菜谱文字会经你的后端交给 DeepSeek 整理，后端不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
           Divider().color(LINE)
-          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.3.0')
+          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.3.1')
         }
         .width('100%')
         .padding({ left: 16, right: 16 })
