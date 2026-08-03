@@ -36,6 +36,7 @@ struct Index {
   @State latestInstruction: string = '';
   @State assistantReply: string = '';
   @State draftHistory: DraftRecipeVersion[] = [];
+  @State draftRenderRevision: number = 0;
   @State draftName: string = '';
   @State draftSteps: string[] = [];
   @State draftIngredients: string[] = [];
@@ -135,6 +136,7 @@ struct Index {
     this.assistantReply = draft.assistantReply.length > 0 ? draft.assistantReply :
       '未完成的菜谱已经恢复，可以继续告诉我怎么改。';
     this.draftHistory = draft.history;
+    this.draftRenderRevision = draft.history.length + 1;
     this.hasDraft = true;
     this.scrollConversationToBottom();
   }
@@ -189,6 +191,7 @@ struct Index {
     this.hasQuestion = false;
     this.questionText = '';
     this.questionIds = [];
+    this.draftRenderRevision += 1;
     this.scrollConversationToBottom();
   }
 
@@ -402,6 +405,7 @@ struct Index {
     this.latestInstruction = '';
     this.assistantReply = '';
     this.draftHistory = [];
+    this.draftRenderRevision = 0;
     this.draftName = '';
     this.draftSteps = [];
     this.draftIngredients = [];
@@ -769,7 +773,7 @@ struct Index {
       } else {
         ForEach(items, (item: string) => {
           this.EstimateItem(item)
-        }, (item: string) => item)
+        }, (item: string, index: number) => `${index}-${item}`)
       }
     }
     .width('100%')
@@ -782,7 +786,8 @@ struct Index {
     seasonings: string[],
     steps: string[],
     experience: string[],
-    showFinish: boolean) {
+    showFinish: boolean,
+    versionKey: string) {
     Row() {
       Column() {
         ForEach([
@@ -893,6 +898,7 @@ struct Index {
     .borderRadius(18)
     .border({ width: 1, color: '#D7DFDA' })
     .shadow({ radius: 14, color: '#12000000', offsetY: 4 })
+    .id(versionKey)
   }
 
   @Builder
@@ -960,7 +966,8 @@ struct Index {
                 version.seasonings,
                 version.steps,
                 version.experience,
-                false)
+                false,
+                `history-${index}`)
             }, (_version: DraftRecipeVersion, index: number) => `${index}`)
 
             if (this.latestInstruction.length > 0) {
@@ -973,7 +980,8 @@ struct Index {
               this.draftSeasonings,
               this.draftSteps,
               this.draftExperience,
-              true)
+              true,
+              `latest-${this.draftRenderRevision}`)
           }
 
           if (this.statusMessage.length > 0) {
@@ -1657,7 +1665,7 @@ struct Index {
           Divider().color(LINE)
           this.ProfileRow('隐私说明', '发送时，菜谱文字会经你的后端交给 DeepSeek 整理，后端不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
           Divider().color(LINE)
-          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.2.0-ai')
+          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.2.1-ai')
         }
         .width('100%')
         .padding({ left: 16, right: 16 })
