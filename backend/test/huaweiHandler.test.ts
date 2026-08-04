@@ -8,7 +8,6 @@ import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '
 import { buildHuaweiHandler } from '../src/huawei/buildHuaweiHandler.js';
 import { InvalidModelOutputError } from '../src/services/recipeService.js';
 
-const token = 'test-device-token-1234';
 const recipe: RecipeDraft = {
   name: '番茄炒蛋',
   ingredients: [{ name: '番茄', amount: '2 个', isAiEstimated: false }],
@@ -33,7 +32,6 @@ function createService(overrides: Partial<RecipeServiceDependency> = {}): Recipe
 function createHandler(service = createService(), log = vi.fn()) {
   return {
     handler: buildHuaweiHandler({
-      config: { APP_ACCESS_TOKEN: token },
       service,
       logger: { info: log }
     }),
@@ -44,7 +42,6 @@ function createHandler(service = createService(), log = vi.fn()) {
 function authorizedEvent(body: unknown) {
   return {
     httpMethod: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
     body: JSON.stringify(body),
     isBase64Encoded: false
   };
@@ -59,7 +56,7 @@ describe('Huawei AGC cloud function handler', () => {
     expect(JSON.parse(response.body)).toEqual({ status: 'ok' });
   });
 
-  it('analyzes an action envelope and accepts case-insensitive authorization headers', async () => {
+  it('analyzes an action envelope after AGC gateway authentication', async () => {
     const service = createService();
     const { handler } = createHandler(service);
     const response = await handler(authorizedEvent({
@@ -80,7 +77,6 @@ describe('Huawei AGC cloud function handler', () => {
       payload: { currentRecipe: recipe, instruction: '多炒一会。' }
     })).toString('base64');
     const response = await handler({
-      headers: { authorization: `Bearer ${token}` },
       body,
       isBase64Encoded: true
     });
@@ -102,14 +98,8 @@ describe('Huawei AGC cloud function handler', () => {
     expect(service.analyze).toHaveBeenCalledWith({ originalText: '番茄炒蛋。' });
   });
 
-  it('rejects unauthorized, invalid, and oversized requests', async () => {
+  it('rejects invalid and oversized requests', async () => {
     const { handler } = createHandler();
-
-    const unauthorized = await handler({
-      body: JSON.stringify({ action: 'analyze', payload: { originalText: '番茄炒蛋。' } })
-    });
-    expect(unauthorized.statusCode).toBe(401);
-    expect(JSON.parse(unauthorized.body)).toMatchObject({ error: { code: 'UNAUTHORIZED' } });
 
     const invalid = await handler(authorizedEvent({ action: 'analyze', payload: { originalText: '' } }));
     expect(invalid.statusCode).toBe(400);
@@ -142,7 +132,7 @@ describe('Huawei AGC cloud function handler', () => {
     expect(response.body).not.toContain(error.message);
   });
 
-  it('does not log recipe text, authorization, or provider errors', async () => {
+  it('does not log recipe text or provider errors', async () => {
     const privateText = '绝不能记录的私房菜原文';
     const privateError = 'private provider detail';
     const log = vi.fn();
@@ -155,7 +145,6 @@ describe('Huawei AGC cloud function handler', () => {
     const logs = JSON.stringify(log.mock.calls);
     expect(logs).not.toContain(privateText);
     expect(logs).not.toContain(privateError);
-    expect(logs).not.toContain(token);
     expect(log).toHaveBeenCalledWith(expect.objectContaining({
       route: 'analyze',
       statusCode: 500

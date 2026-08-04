@@ -1,12 +1,6 @@
-import type { AppConfig } from '../config.js';
 import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../domain/recipe.js';
 import { AnalyzeRequestSchema, ReviseRequestSchema } from '../domain/schemas.js';
-import {
-  hasExpectedBearerToken,
-  mapError,
-  type RequestLogEntry,
-  UnauthorizedError
-} from '../http/buildServer.js';
+import { mapError, type RequestLogEntry } from '../http/buildServer.js';
 import { createPublicError } from '../http/errors.js';
 
 interface RecipeServiceDependency {
@@ -30,7 +24,6 @@ export interface HuaweiHttpResponse {
 }
 
 export interface BuildHuaweiHandlerDependencies {
-  config: Pick<AppConfig, 'APP_ACCESS_TOKEN'>;
   service: RecipeServiceDependency;
   logger?: { info(entry: RequestLogEntry): void };
 }
@@ -65,11 +58,6 @@ export function buildHuaweiHandler(dependencies: BuildHuaweiHandlerDependencies)
       if (request.action === 'health') {
         statusCode = 200;
         return jsonResponse(statusCode, { status: 'ok' });
-      }
-
-      const authorization = readHeader(event.headers, 'authorization');
-      if (!hasExpectedBearerToken(authorization, dependencies.config.APP_ACCESS_TOKEN)) {
-        throw new UnauthorizedError();
       }
 
       if (request.action === 'analyze') {
@@ -158,15 +146,6 @@ function isAction(value: unknown): value is Action {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function readHeader(headersValue: unknown, expectedName: string): string | undefined {
-  if (!isRecord(headersValue)) {
-    return undefined;
-  }
-  const entry = Object.entries(headersValue)
-    .find(([name]) => name.toLowerCase() === expectedName.toLowerCase());
-  return typeof entry?.[1] === 'string' ? entry[1] : undefined;
 }
 
 function jsonResponse(statusCode: number, body: unknown): HuaweiHttpResponse {

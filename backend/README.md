@@ -65,13 +65,12 @@
 3. Upload `kitchen-master-agc.zip` and configure these environment variables:
 
    - `DEEPSEEK_API_KEY`
-   - `APP_ACCESS_TOKEN`
    - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
    - `DEEPSEEK_MODEL=deepseek-v4-flash`
-   - `PORT=9000` (retained for local-server configuration compatibility)
 
-4. Add one HTTP trigger. The trigger currently accepts POST requests. Keep the
-   endpoint HTTPS-only and retain bearer authentication inside the function.
+4. Add one HTTP trigger using `API client authentication (Client)` and POST.
+   AppGallery Connect authenticates requests before invoking the function, so the
+   AGC deployment does not duplicate the local server's bearer-token check.
 
 5. The single endpoint accepts an action envelope:
 
@@ -84,8 +83,7 @@
    }
    ```
 
-   Supported actions are `health`, `analyze`, and `revise`. The `health` action
-   does not require authorization; the other two require the app bearer token.
+   Supported actions are `health`, `analyze`, and `revise`.
 
 ## Legacy Tencent SCF Web Function deployment
 

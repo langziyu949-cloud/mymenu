@@ -1,4 +1,4 @@
-import type { AppConfig } from '../config.js';
+import type { DeepSeekConfig } from '../config.js';
 
 export interface ChatMessage {
   role: 'system' | 'user';
@@ -50,8 +50,6 @@ interface CompletionPayload {
     finish_reason?: unknown;
   }>;
 }
-
-type DeepSeekConfig = Pick<AppConfig, 'DEEPSEEK_API_KEY' | 'DEEPSEEK_BASE_URL' | 'DEEPSEEK_MODEL'>;
 
 export class DeepSeekClient implements ChatCompletionClient {
   constructor(private readonly config: DeepSeekConfig) {}
