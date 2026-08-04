@@ -8,7 +8,7 @@
    cp .env.example .env
    ```
 
-   Keep `DEEPSEEK_API_KEY` only in this local environment file or in Tencent SCF environment variables. Do not place it in client code, request JSON, or shell commands/history.
+   Keep `DEEPSEEK_API_KEY` only in this local environment file or in cloud-function environment variables. Do not place it in client code, request JSON, or shell commands/history.
 
 2. Start the service:
 
@@ -16,7 +16,7 @@
    npm run dev
    ```
 
-   `dotenv` reads `backend/.env` locally. In Tencent SCF, configure the same values as function environment variables instead.
+   `dotenv` reads `backend/.env` locally. In AppGallery Connect, configure the same values as function environment variables instead.
 
 3. Verify the health endpoint:
 
@@ -42,7 +42,52 @@
      --data @analyze-request.json
    ```
 
-## Tencent SCF Web Function deployment
+## Huawei AppGallery Connect cloud-function deployment
+
+1. Build the deployment archive:
+
+   ```bash
+   npm run package:agc
+   ```
+
+   This creates `kitchen-master-agc.zip`. The archive contains the `index.handler`
+   entry point, compiled application code, and production dependencies. It never
+   includes `.env` or the DeepSeek API key.
+
+2. In AppGallery Connect, create one event function with these settings:
+
+   - Name: `kitchen-master-ai`
+   - Runtime: the newest supported Node.js runtime (Node.js 20 preferred)
+   - Handler: `index.handler`
+   - Memory: 256 MB
+   - Timeout: 60 seconds
+
+3. Upload `kitchen-master-agc.zip` and configure these environment variables:
+
+   - `DEEPSEEK_API_KEY`
+   - `APP_ACCESS_TOKEN`
+   - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
+   - `DEEPSEEK_MODEL=deepseek-v4-flash`
+   - `PORT=9000` (retained for local-server configuration compatibility)
+
+4. Add one HTTP trigger. The trigger currently accepts POST requests. Keep the
+   endpoint HTTPS-only and retain bearer authentication inside the function.
+
+5. The single endpoint accepts an action envelope:
+
+   ```json
+   {
+     "action": "analyze",
+     "payload": {
+       "originalText": "番茄炒蛋。"
+     }
+   }
+   ```
+
+   Supported actions are `health`, `analyze`, and `revise`. The `health` action
+   does not require authorization; the other two require the app bearer token.
+
+## Legacy Tencent SCF Web Function deployment
 
 1. Build the deployment archive:
 

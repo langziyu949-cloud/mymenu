@@ -4,3 +4,4 @@ backend/.env
 backend/dist/
 backend/node_modules/
 backend/kitchen-master-scf.zip
+backend/kitchen-master-agc.zip

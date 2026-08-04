@@ -31,7 +31,7 @@ export interface BuildServerDependencies {
   logger?: { info(entry: RequestLogEntry): void };
 }
 
-class UnauthorizedError extends Error {}
+export class UnauthorizedError extends Error {}
 
 const invalidRequestFastifyErrorCodes = new Set([
   'FST_ERR_CTP_INVALID_MEDIA_TYPE',
@@ -94,7 +94,7 @@ export function buildServer(dependencies: BuildServerDependencies): FastifyInsta
   }
 }
 
-function hasExpectedBearerToken(authorization: string | undefined, token: string): boolean {
+export function hasExpectedBearerToken(authorization: string | undefined, token: string): boolean {
   if (authorization === undefined) {
     return false;
   }
@@ -104,7 +104,7 @@ function hasExpectedBearerToken(authorization: string | undefined, token: string
   return received.length === expected.length && timingSafeEqual(received, expected);
 }
 
-function mapError(error: unknown): { statusCode: number; body: PublicError } {
+export function mapError(error: unknown): { statusCode: number; body: PublicError } {
   if (error instanceof UnauthorizedError) {
     return { statusCode: 401, body: createPublicError('UNAUTHORIZED') };
   }
