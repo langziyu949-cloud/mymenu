@@ -2018,7 +2018,7 @@ struct Index {
           Divider().color(LINE)
           this.ProfileRow('隐私说明', '发送时，菜谱文字会经你的后端交给 DeepSeek 整理，后端不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
           Divider().color(LINE)
-          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.3.1')
+          this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.3.2')
         }
         .width('100%')
         .padding({ left: 16, right: 16 })
