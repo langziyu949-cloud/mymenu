@@ -6,6 +6,7 @@ import {
 } from '../src/ai/deepSeekClient.js';
 import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../src/domain/recipe.js';
 import { buildHuaweiHandler } from '../src/huawei/buildHuaweiHandler.js';
+import { handler as agcEntrypoint } from '../src/huaweiHandler.js';
 import { InvalidModelOutputError } from '../src/services/recipeService.js';
 
 const recipe: RecipeDraft = {
@@ -48,6 +49,22 @@ function authorizedEvent(body: unknown) {
 }
 
 describe('Huawei AGC cloud function handler', () => {
+  it('completes the AGC runtime through its callback', async () => {
+    const response = await new Promise<ReturnType<typeof JSON.parse>>((resolve, reject) => {
+      const returnValue = agcEntrypoint(
+        { body: JSON.stringify({ action: 'health' }), isBase64Encoded: false },
+        {},
+        result => resolve(result),
+        { error: reject }
+      );
+
+      expect(returnValue).toBeUndefined();
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({ status: 'ok' });
+  });
+
   it('supports a health action without authorization', async () => {
     const { handler } = createHandler();
     const response = await handler({ body: JSON.stringify({ action: 'health' }) });
