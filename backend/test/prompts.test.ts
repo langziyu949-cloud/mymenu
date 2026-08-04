@@ -42,6 +42,7 @@ describe('recipe prompts', () => {
 
     expect(text).toContain('只要菜名和至少一个可执行步骤已具备，必须直接返回 kind: "recipe"');
     expect(text).toContain('绝不为可选做法、口味偏好、是否去皮、火候细节、食材或调料用量追问');
+    expect(text).toContain('番茄炒蛋，用两个鸡蛋和两个番茄，锅里放油炒熟。');
   });
 
   it('keeps retrospective experience out of cooking steps', () => {

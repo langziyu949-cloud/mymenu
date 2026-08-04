@@ -112,6 +112,22 @@ describe('RecipeService', () => {
     expect(client.calls).toBe(2);
   });
 
+  it('retries questions that contradict an explicit dish name and cooking action', async () => {
+    const questions = JSON.stringify({
+      kind: 'questions',
+      questions: [
+        { id: 'q1', text: '这道菜叫什么名字？', reason: 'missing_name' },
+        { id: 'q2', text: '请提供具体的制作步骤。', reason: 'missing_steps' }
+      ]
+    });
+    const client = new FakeClient([questions, recipeResponse]);
+
+    await expect(new RecipeService(client).analyze({
+      originalText: '番茄炒蛋，用两个鸡蛋和两个番茄，锅里放油炒熟。'
+    })).resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+    expect(client.calls).toBe(2);
+  });
+
   it.each([
     ['response error', new DeepSeekResponseError()],
     ['truncated response', new DeepSeekTruncatedResponseError()]
