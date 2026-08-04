@@ -1,7 +1,6 @@
-import { http } from '@kit.NetworkKit';
+import { cloudFunction } from '@kit.CloudFoundationKit';
 
-const API_BASE_URL: string = 'http://127.0.0.1:9000/api/v1';
-const APP_ACCESS_TOKEN: string = 'kitchen-master-local-demo-v1';
+const CLOUD_FUNCTION_NAME: string = 'kitchen-master-ai';
 
 export interface AiRecipeItem {
   name: string;
@@ -34,6 +33,21 @@ export interface AiAnalyzeResult {
   recipe: AiRecipeDraft | null;
 }
 
+interface AnalyzePayload {
+  originalText: string;
+  answers?: AiClarifyingAnswer[];
+}
+
+interface RevisePayload {
+  currentRecipe: AiRecipeDraft;
+  instruction: string;
+}
+
+interface CloudActionEnvelope {
+  action: string;
+  payload?: AnalyzePayload | RevisePayload;
+}
+
 interface RawAnalyzeResult {
   kind: string;
   questions?: AiClarifyingQuestion[];
@@ -47,6 +61,11 @@ interface ApiErrorDetail {
 
 interface ApiErrorEnvelope {
   error?: ApiErrorDetail;
+}
+
+interface CloudHttpResponse {
+  statusCode?: number;
+  body?: string;
 }
 
 export class RecipeAiServiceError extends Error {
@@ -63,27 +82,18 @@ export class RecipeAiServiceError extends Error {
 
 export class RecipeAiService {
   async isAvailable(): Promise<boolean> {
-    const request: http.HttpRequest = http.createHttp();
     try {
-      const response: http.HttpResponse = await request.request(`${API_BASE_URL}/health`, {
-        method: http.RequestMethod.GET,
-        expectDataType: http.HttpDataType.STRING,
-        usingCache: false,
-        connectTimeout: 3000,
-        readTimeout: 3000
-      });
-      return response.responseCode === http.ResponseCode.OK;
+      const content: string = await this.call({ action: 'health' }, 10000);
+      const health: Record<string, string> = JSON.parse(content) as Record<string, string>;
+      return health.status === 'ok';
     } catch {
       return false;
-    } finally {
-      request.destroy();
     }
   }
 
   async analyze(originalText: string, answers?: AiClarifyingAnswer[]): Promise<AiAnalyzeResult> {
-    const body: string = answers === undefined ?
-      JSON.stringify({ originalText }) : JSON.stringify({ originalText, answers });
-    const raw: RawAnalyzeResult = JSON.parse(await this.post('/recipes/analyze', body)) as RawAnalyzeResult;
+    const payload: AnalyzePayload = answers === undefined ? { originalText } : { originalText, answers };
+    const raw: RawAnalyzeResult = JSON.parse(await this.call({ action: 'analyze', payload })) as RawAnalyzeResult;
     if (raw.kind === 'questions') {
       return { kind: raw.kind, questions: raw.questions ?? [], recipe: null };
     }
@@ -94,37 +104,47 @@ export class RecipeAiService {
   }
 
   async revise(currentRecipe: AiRecipeDraft, instruction: string): Promise<AiRecipeDraft> {
-    const body: string = JSON.stringify({ currentRecipe, instruction });
-    const raw: RawAnalyzeResult = JSON.parse(await this.post('/recipes/revise', body)) as RawAnalyzeResult;
+    const payload: RevisePayload = { currentRecipe, instruction };
+    const raw: RawAnalyzeResult = JSON.parse(await this.call({ action: 'revise', payload })) as RawAnalyzeResult;
     if (raw.kind !== 'recipe' || raw.recipe === undefined) {
       throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
     }
     return raw.recipe;
   }
 
-  private async post(path: string, body: string): Promise<string> {
-    const request: http.HttpRequest = http.createHttp();
+  private async call(envelope: CloudActionEnvelope, timeout: number = 65000): Promise<string> {
     try {
-      const response: http.HttpResponse = await request.request(`${API_BASE_URL}${path}`, {
-        method: http.RequestMethod.POST,
-        header: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${APP_ACCESS_TOKEN}`
-        },
-        extraData: body,
-        expectDataType: http.HttpDataType.STRING,
-        usingCache: false,
-        connectTimeout: 8000,
-        readTimeout: 40000
+      const response: cloudFunction.FunctionResult = await cloudFunction.call({
+        name: CLOUD_FUNCTION_NAME,
+        data: envelope,
+        version: '$latest',
+        timeout
       });
-      const content: string = typeof response.result === 'string' ? response.result : JSON.stringify(response.result);
-      if (response.responseCode < 200 || response.responseCode >= 300) {
-        throw this.apiError(content, response.responseCode);
+      return this.unwrapResponse(response.result);
+    } catch (error) {
+      if (error instanceof RecipeAiServiceError) {
+        throw error;
       }
-      return content;
-    } finally {
-      request.destroy();
+      throw new RecipeAiServiceError('AI_UNAVAILABLE', true);
     }
+  }
+
+  private unwrapResponse(result: string | Object): string {
+    const serialized: string = typeof result === 'string' ? result : JSON.stringify(result);
+    let response: CloudHttpResponse;
+    try {
+      response = JSON.parse(serialized) as CloudHttpResponse;
+    } catch {
+      throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
+    }
+
+    if (response.statusCode === undefined || response.body === undefined) {
+      return serialized;
+    }
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw this.apiError(response.body, response.statusCode);
+    }
+    return response.body;
   }
 
   private apiError(content: string, statusCode: number): RecipeAiServiceError {

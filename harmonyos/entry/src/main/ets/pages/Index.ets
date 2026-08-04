@@ -263,7 +263,7 @@ struct Index {
   private aiErrorMessage(error: Error): string {
     if (error instanceof RecipeAiServiceError) {
       if (error.code === 'UNAUTHORIZED') {
-        return 'AI 服务鉴权配置有误，请检查本地后端';
+        return 'AI 服务鉴权配置有误，请检查华为云函数配置';
       }
       if (error.code === 'AI_INVALID_RESPONSE') {
         return 'AI 返回的菜谱格式不完整，内容已保留，请重试';
@@ -2016,7 +2016,7 @@ struct Index {
             'DeepSeek 服务当前不可用；你的本地菜谱和未发送内容不会丢失。',
             this.aiOnline ? '已连接' : '待连接')
           Divider().color(LINE)
-          this.ProfileRow('隐私说明', '发送时，菜谱文字会经你的后端交给 DeepSeek 整理，后端不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
+          this.ProfileRow('隐私说明', '发送时，菜谱文字会经华为云函数交给 DeepSeek 整理，云函数不记录正文；照片只保存在本机作为封面，不会用于识别或上传。', '')
           Divider().color(LINE)
           this.ProfileRow('关于厨房主理人', '把一次做成功的经验，整理成以后还能复刻的家庭菜谱。', '0.3.2')
         }

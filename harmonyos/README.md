@@ -21,37 +21,26 @@
 
 ## AI 接入
 
-- 当前版本通过项目内的 Node.js 后端调用 `deepseek-v4-flash`，支持首次整理、最多一轮澄清和对话式修改。
+- 当前版本通过华为 AppGallery Connect 云函数调用 `deepseek-v4-flash`，支持首次整理、最多一轮澄清和对话式修改。
 - DeepSeek API Key 仅保存在 `backend/.env` 或云函数环境变量中，不会写入 ArkTS 客户端或 HAP。
-- 本地模拟器使用 HDC 反向端口连接 `http://127.0.0.1:9000`；明文访问仅对回环地址放行。
-- 准备真机长期使用时，应把同一后端部署到腾讯云 HTTPS 地址，并替换客户端的调试地址和访问令牌。
-- 调试 HAP 未配置发布签名，仅用于 DevEco Studio 模拟器或配置好调试签名的设备。
+- ArkTS 客户端通过 Cloud Foundation Kit 的 `cloudFunction.call()` 调用 `kitchen-master-ai`，由系统完成应用客户端鉴权，不保存固定服务地址或访问令牌。
+- 项目包名和签名 Profile 必须与 AppGallery Connect 中的 `com.ziyu.kitchenmaster` 应用一致。
 
-## 本地联调
+## 云函数配置
 
-在 `backend` 目录准备被 Git 忽略的 `.env`，至少配置：
+在 AppGallery Connect 的 `kitchen-master-ai` 函数中配置：
 
 ```text
-DEEPSEEK_API_KEY=你的本地密钥
-APP_ACCESS_TOKEN=长度不少于16位的客户端访问令牌
+DEEPSEEK_API_KEY=你的密钥
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
-PORT=9000
 ```
 
-安装依赖并启动后端：
+函数入口为 `index.handler`，HTTP 触发器使用 POST、API 客户端鉴权，并关闭 decode。重新生成上传包：
 
 ```bash
 cd ../backend
-npm install
-npm run build
-npm start
-```
-
-模拟器启动后建立反向端口，再运行应用：
-
-```bash
-hdc -t 127.0.0.1:5555 rport tcp:9000 tcp:9000
+npm run package:agc
 ```
 
 ## 构建
@@ -61,7 +50,9 @@ hdc -t 127.0.0.1:5555 rport tcp:9000 tcp:9000
 ```bash
 DEVECO_SDK_HOME="/Applications/DevEco-Studio.app/Contents/sdk" \
 JAVA_HOME="/Applications/DevEco-Studio.app/Contents/jbr/Contents/Home" \
+PATH="/Applications/DevEco-Studio.app/Contents/tools/node/bin:/usr/bin:/bin" \
 "/Applications/DevEco-Studio.app/Contents/tools/hvigor/bin/hvigorw" \
+  --no-daemon \
   --mode module \
   -p product=default \
   -p module=entry@default \

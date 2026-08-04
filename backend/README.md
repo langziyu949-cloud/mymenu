@@ -58,7 +58,7 @@
    - Name: `kitchen-master-ai`
    - Runtime: the newest supported Node.js runtime (Node.js 20 preferred)
    - Handler: `index.handler`
-   - Memory: 256 MB
+   - Memory: 500 MB
    - Timeout: 60 seconds
 
 3. Upload `kitchen-master-agc.zip` and configure these environment variables:
@@ -70,6 +70,8 @@
 4. Add one HTTP trigger using `API client authentication (Client)` and POST.
    AppGallery Connect authenticates requests before invoking the function, so the
    AGC deployment does not duplicate the local server's bearer-token check.
+   Keep decode disabled. HarmonyOS clients invoke the function by name through
+   Cloud Foundation Kit; the relative trigger URL is not hard-coded in the app.
 
 5. The single endpoint accepts an action envelope:
 
