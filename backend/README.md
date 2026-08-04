@@ -50,9 +50,8 @@
    npm run package:agc
    ```
 
-   This creates `kitchen-master-agc.zip`. The archive contains the `index.handler`
-   entry point, compiled application code, and production dependencies. It never
-   includes `.env` or the DeepSeek API key.
+   This creates a small `kitchen-master-agc.zip` containing the bundled
+   `index.handler` entry point. It never includes `.env` or the DeepSeek API key.
 
 2. In AppGallery Connect, create one event function with these settings:
 

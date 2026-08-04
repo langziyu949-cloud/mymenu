@@ -9,21 +9,20 @@ trap 'rm -rf "$staging_dir"' EXIT
 
 npm ci
 npm test
-npm run build
-npm prune --omit=dev
 
-cp huawei-index.js "$staging_dir/index.js"
 cp deploy/agc/package.json "$staging_dir/package.json"
-cp -R dist "$staging_dir/dist"
-cp deploy/agc/dist-package.json "$staging_dir/dist/package.json"
-cp -R node_modules "$staging_dir/node_modules"
+./node_modules/.bin/esbuild src/huaweiHandler.ts \
+  --bundle \
+  --minify \
+  --platform=node \
+  --format=cjs \
+  --target=node20 \
+  --outfile="$staging_dir/index.js"
 
 rm -f "$archive_path"
 (
   cd "$staging_dir"
   zip -qr "$archive_path" .
 )
-
-npm install
 
 echo "Created $archive_path"
