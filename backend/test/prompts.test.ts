@@ -9,6 +9,7 @@ describe('recipe prompts', () => {
     expect(text).toContain('最多三个');
     expect(text).toContain('不得生成用户没有表达的经验建议');
     expect(text).toContain('放番茄炖牛腩。');
+    expect(text).toContain('必须结合这次具体菜名、食材、做法或补充内容来写');
   });
 
   it('distinguishes first analysis from the completed clarification round', () => {
@@ -85,7 +86,7 @@ describe('recipe prompts', () => {
     expect(text).toContain('同时更新 seasonings 和 steps 中出现的该用量');
   });
 
-  it('requires revision to return a raw recipe draft without an envelope', () => {
+  it('requires revision to return a recipe and contextual reply without a kind envelope', () => {
     const text = buildReviseMessages({
       currentRecipe: {
         name: '番茄牛腩',
@@ -97,7 +98,35 @@ describe('recipe prompts', () => {
       instruction: '老抽改成半勺'
     }).map((message) => message.content).join('\n');
 
-    expect(text).toContain('{"name":"...","ingredients":[],"seasonings":[],"steps":[],"experience":[]}');
+    expect(text).toContain('{"recipe":{"name":"...","ingredients":[],"seasonings":[],"steps":[],"experience":[]},"reply":"..."}');
+    expect(text).toContain('必须准确回应本轮具体修订要求');
     expect(text).not.toContain('{"kind":"recipe","recipe":');
+  });
+
+  it('gives a visible recipe-focused reply for out-of-scope input', () => {
+    const text = buildAnalyzeMessages({ originalText: '帮我写一段代码。' })
+      .map((message) => message.content)
+      .join('\n');
+
+    expect(text).toContain('kind: "guidance"');
+    expect(text).toContain('不得编造菜谱');
+    expect(text).toContain('不得留空');
+  });
+
+  it('passes recent replies and forbids revision reply repetition', () => {
+    const text = buildReviseMessages({
+      currentRecipe: {
+        name: '水煮牛肉',
+        ingredients: [],
+        seasonings: [],
+        steps: ['煮熟。'],
+        experience: []
+      },
+      instruction: '盐改成两勺',
+      previousReplies: ['辣椒少放让口味更温和。']
+    }).map((message) => message.content).join('\n');
+
+    expect(text).toContain('辣椒少放让口味更温和');
+    expect(text).toContain('不得重复或改写上述历史回复');
   });
 });

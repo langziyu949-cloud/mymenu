@@ -8,8 +8,8 @@ import {
   DeepSeekTruncatedResponseError,
   type ChatCompletionClient
 } from '../ai/deepSeekClient.js';
-import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../domain/recipe.js';
-import { AnalyzeResultSchema, RecipeDraftSchema } from '../domain/schemas.js';
+import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, RecipeRevision, ReviseRequest } from '../domain/recipe.js';
+import { AnalyzeResultSchema, RecipeRevisionSchema } from '../domain/schemas.js';
 
 export class InvalidModelOutputError extends Error {
   constructor() {
@@ -24,7 +24,7 @@ export class RecipeService {
   async analyze(request: AnalyzeRequest): Promise<AnalyzeResult> {
     return this.completeWithRetry(buildAnalyzeMessages(request), (value) => {
       const result = AnalyzeResultSchema.parse(value);
-      if (request.answers !== undefined && result.kind === 'questions') {
+      if (request.answers !== undefined && result.kind !== 'recipe') {
         throw new InvalidModelOutputError();
       }
       if (result.kind === 'questions' && questionsContradictSource(request.originalText, result)) {
@@ -34,11 +34,19 @@ export class RecipeService {
     });
   }
 
-  async revise(request: ReviseRequest): Promise<RecipeDraft> {
-    return this.completeWithRetry(
+  async revise(request: ReviseRequest): Promise<RecipeRevision> {
+    const revision = await this.completeWithRetry(
       buildReviseMessages(request),
-      (value) => RecipeDraftSchema.parse(value)
+      (value) => RecipeRevisionSchema.parse(value)
     );
+    const previousReplies = request.previousReplies ?? [];
+    if (previousReplies.some(reply => normalizeReply(reply) === normalizeReply(revision.reply))) {
+      return {
+        recipe: revision.recipe,
+        reply: buildRevisionFallbackReply(request.currentRecipe, revision.recipe, request.instruction)
+      };
+    }
+    return revision;
   }
 
   private async completeWithRetry<T>(
@@ -85,6 +93,35 @@ export class RecipeService {
   private isRetryableOutputError(error: unknown): boolean {
     return error instanceof DeepSeekResponseError || error instanceof DeepSeekTruncatedResponseError;
   }
+}
+
+function normalizeReply(value: string): string {
+  return value.replace(/[\s，。！？、；：“”‘’"']/gu, '').toLocaleLowerCase();
+}
+
+function buildRevisionFallbackReply(before: RecipeDraft, after: RecipeDraft, instruction: string): string {
+  const changes: string[] = [];
+  if (before.name !== after.name) {
+    changes.push(`菜名改为“${after.name}”`);
+  }
+  if (JSON.stringify(before.ingredients) !== JSON.stringify(after.ingredients)) {
+    changes.push('食材及用量已更新');
+  }
+  if (JSON.stringify(before.seasonings) !== JSON.stringify(after.seasonings)) {
+    changes.push('调料及用量已更新');
+  }
+  if (JSON.stringify(before.steps) !== JSON.stringify(after.steps)) {
+    changes.push('制作步骤已同步调整');
+  }
+  if (JSON.stringify(before.experience) !== JSON.stringify(after.experience)) {
+    changes.push('经验建议已更新');
+  }
+  const cleanInstruction = instruction.trim().replace(/[。！!？?]+$/u, '');
+  const summary = cleanInstruction.length > 28 ? `${cleanInstruction.slice(0, 28)}…` : cleanInstruction;
+  if (changes.length === 0) {
+    return `我检查了“${summary}”，当前菜谱没有需要落地的变化。请直接说要改哪种食材、用量或步骤。`;
+  }
+  return `这次根据“${summary}”，${changes.slice(0, 2).join('，')}。其余内容保持不变。`;
 }
 
 function questionsContradictSource(originalText: string, result: Extract<AnalyzeResult, { kind: 'questions' }>): boolean {

@@ -39,12 +39,27 @@ export const AnalyzeResultSchema = z.discriminatedUnion('kind', [
     questions: z.array(ClarifyingQuestionSchema).max(3)
   }).strict(),
   z.object({
+    kind: z.literal('guidance'),
+    reply: nonEmptyTrimmedString.max(180)
+  }).strict(),
+  z.object({
     kind: z.literal('recipe'),
-    recipe: RecipeDraftSchema
+    recipe: RecipeDraftSchema,
+    reply: nonEmptyTrimmedString.max(180)
   }).strict()
 ]);
 
+export const RecipeRevisionSchema = z.object({
+  recipe: RecipeDraftSchema,
+  reply: nonEmptyTrimmedString.max(180)
+}).strict();
+
 export const ReviseRequestSchema = z.object({
   currentRecipe: RecipeDraftSchema,
-  instruction: nonEmptyTrimmedString
+  instruction: nonEmptyTrimmedString,
+  previousReplies: z.array(nonEmptyTrimmedString.max(180)).max(6).optional()
+}).strict();
+
+export const HuaweiAccountVerificationRequestSchema = z.object({
+  authorizationCode: z.string().trim().min(1).max(8192)
 }).strict();

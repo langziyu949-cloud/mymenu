@@ -1,12 +1,14 @@
 import 'dotenv/config';
 import { DeepSeekClient } from './ai/deepSeekClient.js';
-import { loadDeepSeekConfig } from './config.js';
+import { loadDeepSeekConfig, loadHuaweiAccountConfig } from './config.js';
 import {
   buildHuaweiHandler,
   type HuaweiHttpEvent,
   type HuaweiHttpResponse
 } from './huawei/buildHuaweiHandler.js';
 import { RecipeService } from './services/recipeService.js';
+import { HuaweiAccountService } from './services/huaweiAccountService.js';
+import { IdentitySessionService } from './services/identitySessionService.js';
 
 type RuntimeHandler = (event: HuaweiHttpEvent) => Promise<HuaweiHttpResponse>;
 type AgcCallback = (response: HuaweiHttpResponse) => void;
@@ -17,6 +19,8 @@ interface AgcLogger {
 
 let runtimeHandler: RuntimeHandler | undefined;
 let recipeService: RecipeService | undefined;
+let accountService: HuaweiAccountService | undefined;
+let identitySessionService: IdentitySessionService | undefined;
 
 function getRuntimeHandler(): RuntimeHandler {
   if (runtimeHandler === undefined) {
@@ -24,10 +28,36 @@ function getRuntimeHandler(): RuntimeHandler {
       service: {
         analyze: request => getRecipeService().analyze(request),
         revise: request => getRecipeService().revise(request)
+      },
+      accountService: {
+        verifyAuthorizationCode: code => getAccountService().verifyAuthorizationCode(code)
+      },
+      identitySessionService: {
+        issue: (subject, profile) => getIdentitySessionService().issue(subject, profile),
+        verify: token => getIdentitySessionService().verify(token)
       }
     });
   }
   return runtimeHandler;
+}
+
+function getAccountService(): HuaweiAccountService {
+  if (accountService === undefined) {
+    const config = loadHuaweiAccountConfig();
+    accountService = new HuaweiAccountService({
+      clientId: config.HUAWEI_ACCOUNT_CLIENT_ID,
+      clientSecret: config.HUAWEI_ACCOUNT_CLIENT_SECRET
+    });
+  }
+  return accountService;
+}
+
+function getIdentitySessionService(): IdentitySessionService {
+  if (identitySessionService === undefined) {
+    const config = loadHuaweiAccountConfig();
+    identitySessionService = new IdentitySessionService(config.IDENTITY_SESSION_SECRET);
+  }
+  return identitySessionService;
 }
 
 function getRecipeService(): RecipeService {

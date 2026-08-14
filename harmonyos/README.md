@@ -18,6 +18,7 @@
 - 编辑器支持食材、调料、步骤和经验的实时增删、常用用量填充与长按拖动排序。
 - 使用 ArkData relationalStore 本地保存菜谱和未完成草稿，应用重启后仍可恢复。
 - “我的”页面展示本地存储、隐私说明、AI 服务状态和版本信息。
+- AI 入口仅保留个人开发者可用的普通华为账号登录；Account Kit 授权码由云函数核验，登录会话保存在系统关键资产存储中，不获取手机号。
 
 ## AI 接入
 
@@ -34,6 +35,9 @@
 DEEPSEEK_API_KEY=你的密钥
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-flash
+HUAWEI_ACCOUNT_CLIENT_ID=华为应用的OAuth客户端ID
+HUAWEI_ACCOUNT_CLIENT_SECRET=华为应用的OAuth客户端密钥
+IDENTITY_SESSION_SECRET=至少32位随机字符串
 ```
 
 函数入口为 `index.handler`，HTTP 触发器使用 POST、API 客户端鉴权，并关闭 decode。重新生成上传包：

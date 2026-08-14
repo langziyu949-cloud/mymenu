@@ -66,6 +66,9 @@
    - `DEEPSEEK_API_KEY`
    - `DEEPSEEK_BASE_URL=https://api.deepseek.com`
    - `DEEPSEEK_MODEL=deepseek-v4-flash`
+   - `HUAWEI_ACCOUNT_CLIENT_ID` (OAuth 2.0 Client ID for the same AGC app)
+   - `HUAWEI_ACCOUNT_CLIENT_SECRET` (server-side only)
+   - `IDENTITY_SESSION_SECRET` (at least 32 random characters; server-side only)
 
 4. Add one HTTP trigger using `API client authentication (Client)` and POST.
    AppGallery Connect authenticates requests before invoking the function, so the
@@ -84,7 +87,11 @@
    }
    ```
 
-   Supported actions are `health`, `analyze`, and `revise`.
+   Supported actions are `health`, `verifyHuaweiAccount`, `validateIdentity`,
+   `analyze`, and `revise`. Account Kit returns a one-time Authorization Code
+   to the app. The cloud function exchanges it for a user-level credential,
+   resolves OpenID/UnionID, and issues a seven-day signed login session. `analyze` and
+   `revise` reject missing, expired, or tampered identity sessions.
 
 ## Legacy Tencent SCF Web Function deployment
 

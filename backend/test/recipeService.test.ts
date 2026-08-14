@@ -46,14 +46,15 @@ const validRecipe = {
   experience: []
 } satisfies RecipeDraft;
 
-const recipeResponse = JSON.stringify({ kind: 'recipe', recipe: validRecipe });
+const reply = '番茄炒蛋的食材和步骤都理顺了，火候细节也可以继续告诉我。';
+const recipeResponse = JSON.stringify({ kind: 'recipe', recipe: validRecipe, reply });
 
 describe('RecipeService', () => {
   it('returns a valid analyzed recipe after one completion', async () => {
     const client = new FakeClient([recipeResponse]);
 
     await expect(new RecipeService(client).analyze({ originalText: '番茄炒蛋。' }))
-      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(1);
   });
 
@@ -61,7 +62,7 @@ describe('RecipeService', () => {
     const client = new FakeClient(['', recipeResponse]);
 
     await expect(new RecipeService(client).analyze({ originalText: '番茄炒蛋。' }))
-      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(2);
   });
 
@@ -69,7 +70,7 @@ describe('RecipeService', () => {
     const client = new FakeClient(['{"kind":', recipeResponse]);
 
     await expect(new RecipeService(client).analyze({ originalText: '番茄炒蛋。' }))
-      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(2);
   });
 
@@ -94,7 +95,7 @@ describe('RecipeService', () => {
     const client = new FakeClient([fourQuestions, recipeResponse]);
 
     await expect(new RecipeService(client).analyze({ originalText: '番茄炒蛋。' }))
-      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(2);
   });
 
@@ -108,7 +109,7 @@ describe('RecipeService', () => {
     await expect(new RecipeService(client).analyze({
       originalText: '番茄炒蛋。',
       answers: []
-    })).resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+    })).resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(2);
   });
 
@@ -124,7 +125,7 @@ describe('RecipeService', () => {
 
     await expect(new RecipeService(client).analyze({
       originalText: '番茄炒蛋，用两个鸡蛋和两个番茄，锅里放油炒熟。'
-    })).resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+    })).resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(2);
   });
 
@@ -135,7 +136,7 @@ describe('RecipeService', () => {
     const client = new ErrorThenResponseClient([error, recipeResponse]);
 
     await expect(new RecipeService(client).analyze({ originalText: '番茄炒蛋。' }))
-      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe });
+      .resolves.toEqual({ kind: 'recipe', recipe: validRecipe, reply });
     expect(client.calls).toBe(2);
   });
 
@@ -153,8 +154,8 @@ describe('RecipeService', () => {
 
   it('rejects a revised recipe with an empty name', async () => {
     const client = new FakeClient([
-      JSON.stringify({ ...validRecipe, name: '   ' }),
-      JSON.stringify({ ...validRecipe, name: '' })
+      JSON.stringify({ recipe: { ...validRecipe, name: '   ' }, reply }),
+      JSON.stringify({ recipe: { ...validRecipe, name: '' }, reply })
     ]);
 
     await expect(new RecipeService(client).revise({ currentRecipe: validRecipe, instruction: '换个名字。' }))
@@ -163,8 +164,8 @@ describe('RecipeService', () => {
 
   it('rejects a revised recipe without steps', async () => {
     const client = new FakeClient([
-      JSON.stringify({ ...validRecipe, steps: [] }),
-      JSON.stringify({ ...validRecipe, steps: [] })
+      JSON.stringify({ recipe: { ...validRecipe, steps: [] }, reply }),
+      JSON.stringify({ recipe: { ...validRecipe, steps: [] }, reply })
     ]);
 
     await expect(new RecipeService(client).revise({ currentRecipe: validRecipe, instruction: '简化步骤。' }))
@@ -173,10 +174,40 @@ describe('RecipeService', () => {
 
   it('returns a valid revised recipe', async () => {
     const revisedRecipe = { ...validRecipe, name: '番茄滑蛋' };
-    const client = new FakeClient([JSON.stringify(revisedRecipe)]);
+    const revisedReply = '菜名已经换成“番茄滑蛋”，其余做法保持原样。';
+    const client = new FakeClient([JSON.stringify({ recipe: revisedRecipe, reply: revisedReply })]);
 
     await expect(new RecipeService(client).revise({ currentRecipe: validRecipe, instruction: '改为番茄滑蛋。' }))
-      .resolves.toEqual(revisedRecipe);
+      .resolves.toEqual({ recipe: revisedRecipe, reply: revisedReply });
     expect(client.calls).toBe(1);
+  });
+
+  it('returns a specific diff reply when the model repeats an earlier revision reply', async () => {
+    const revisedRecipe = {
+      ...validRecipe,
+      seasonings: [{ name: '盐', amount: '两勺', isAiEstimated: false }]
+    };
+    const repeatedReply = '辣椒少放让口味更温和。';
+    const client = new FakeClient([JSON.stringify({ recipe: revisedRecipe, reply: repeatedReply })]);
+
+    await expect(new RecipeService(client).revise({
+      currentRecipe: validRecipe,
+      instruction: '盐改成两勺',
+      previousReplies: [repeatedReply]
+    })).resolves.toEqual({
+      recipe: revisedRecipe,
+      reply: '这次根据“盐改成两勺”，调料及用量已更新。其余内容保持不变。'
+    });
+  });
+
+  it('accepts a guidance response for clearly out-of-scope first input', async () => {
+    const guidance = {
+      kind: 'guidance',
+      reply: '我只能帮你整理家常菜谱。可以告诉我菜名、食材和制作步骤。'
+    } as const;
+    const client = new FakeClient([JSON.stringify(guidance)]);
+
+    await expect(new RecipeService(client).analyze({ originalText: '帮我写一段代码。' }))
+      .resolves.toEqual(guidance);
   });
 });

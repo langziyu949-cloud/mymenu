@@ -5,7 +5,7 @@ import {
   DeepSeekRequestError
 } from '../src/ai/deepSeekClient.js';
 import type { AppConfig } from '../src/config.js';
-import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../src/domain/recipe.js';
+import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, RecipeRevision, ReviseRequest } from '../src/domain/recipe.js';
 import { buildServer } from '../src/http/buildServer.js';
 import { InvalidModelOutputError } from '../src/services/recipeService.js';
 
@@ -24,16 +24,17 @@ const recipe: RecipeDraft = {
   steps: ['炒熟番茄。'],
   experience: []
 };
+const reply = '番茄炒蛋已经按家里的做法整理好了。';
 
 interface RecipeServiceDependency {
   analyze(request: AnalyzeRequest): Promise<AnalyzeResult>;
-  revise(request: ReviseRequest): Promise<RecipeDraft>;
+  revise(request: ReviseRequest): Promise<RecipeRevision>;
 }
 
 function createService(overrides: Partial<RecipeServiceDependency> = {}): RecipeServiceDependency {
   return {
-    analyze: vi.fn(async () => ({ kind: 'recipe', recipe })),
-    revise: vi.fn(async () => recipe),
+    analyze: vi.fn(async () => ({ kind: 'recipe', recipe, reply })),
+    revise: vi.fn(async () => ({ recipe, reply })),
     ...overrides
   };
 }
@@ -106,7 +107,7 @@ describe('HTTP API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ kind: 'recipe', recipe });
+    expect(response.json()).toEqual({ kind: 'recipe', recipe, reply });
     expect(service.analyze).toHaveBeenCalledWith({ originalText: '番茄炒蛋。' });
   });
 
@@ -122,7 +123,7 @@ describe('HTTP API', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ kind: 'recipe', recipe });
+    expect(response.json()).toEqual({ kind: 'recipe', recipe, reply });
     expect(service.revise).toHaveBeenCalledWith({ currentRecipe: recipe, instruction: '多炒一会。' });
   });
 

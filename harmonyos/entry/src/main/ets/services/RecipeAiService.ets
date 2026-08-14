@@ -1,5 +1,6 @@
 import { cloudFunction } from '@kit.CloudFoundationKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { identityVerificationService } from './IdentityVerificationService';
 
 const CLOUD_FUNCTION_NAME: string = 'kitchen-master-ai';
 const LOG_DOMAIN: number = 0x0000;
@@ -34,6 +35,12 @@ export interface AiAnalyzeResult {
   kind: string;
   questions: AiClarifyingQuestion[];
   recipe: AiRecipeDraft | null;
+  reply: string;
+}
+
+export interface AiRevisionResult {
+  recipe: AiRecipeDraft;
+  reply: string;
 }
 
 interface AnalyzePayload {
@@ -44,17 +51,20 @@ interface AnalyzePayload {
 interface RevisePayload {
   currentRecipe: AiRecipeDraft;
   instruction: string;
+  previousReplies?: string[];
 }
 
 interface CloudActionEnvelope {
   action: string;
   payload?: AnalyzePayload | RevisePayload;
+  identityToken?: string;
 }
 
 interface RawAnalyzeResult {
   kind: string;
   questions?: AiClarifyingQuestion[];
   recipe?: AiRecipeDraft;
+  reply?: string;
 }
 
 interface ApiErrorDetail {
@@ -98,26 +108,37 @@ export class RecipeAiService {
     const payload: AnalyzePayload = answers === undefined ? { originalText } : { originalText, answers };
     const raw: RawAnalyzeResult = JSON.parse(await this.call({ action: 'analyze', payload })) as RawAnalyzeResult;
     if (raw.kind === 'questions') {
-      return { kind: raw.kind, questions: raw.questions ?? [], recipe: null };
+      return { kind: raw.kind, questions: raw.questions ?? [], recipe: null, reply: '' };
+    }
+    if (raw.kind === 'guidance' && raw.reply !== undefined && raw.reply.trim().length > 0) {
+      return { kind: raw.kind, questions: [], recipe: null, reply: raw.reply.trim() };
     }
     if (raw.kind === 'recipe' && raw.recipe !== undefined) {
-      return { kind: raw.kind, questions: [], recipe: raw.recipe };
+      return { kind: raw.kind, questions: [], recipe: raw.recipe, reply: raw.reply ?? '' };
     }
     throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
   }
 
-  async revise(currentRecipe: AiRecipeDraft, instruction: string): Promise<AiRecipeDraft> {
-    const payload: RevisePayload = { currentRecipe, instruction };
+  async revise(currentRecipe: AiRecipeDraft, instruction: string,
+    previousReplies: string[]): Promise<AiRevisionResult> {
+    const payload: RevisePayload = { currentRecipe, instruction, previousReplies };
     const raw: RawAnalyzeResult = JSON.parse(await this.call({ action: 'revise', payload })) as RawAnalyzeResult;
     if (raw.kind !== 'recipe' || raw.recipe === undefined) {
       throw new RecipeAiServiceError('AI_INVALID_RESPONSE', true);
     }
-    return raw.recipe;
+    return { recipe: raw.recipe, reply: raw.reply ?? '' };
   }
 
   private async call(envelope: CloudActionEnvelope, timeout: number = 65000): Promise<string> {
     hilog.info(LOG_DOMAIN, LOG_TAG, 'Calling cloud function, action=%{public}s', envelope.action);
     try {
+      if (envelope.action !== 'health') {
+        try {
+          envelope.identityToken = await identityVerificationService.getIdentityToken();
+        } catch {
+          throw new RecipeAiServiceError('IDENTITY_REQUIRED', false);
+        }
+      }
       const response: cloudFunction.FunctionResult = await cloudFunction.call({
         name: CLOUD_FUNCTION_NAME,
         data: envelope,

@@ -12,8 +12,15 @@ const EnvSchema = DeepSeekEnvSchema.extend({
   PORT: z.coerce.number().int().min(1).max(65535).default(9000)
 });
 
+const HuaweiAccountEnvSchema = z.object({
+  HUAWEI_ACCOUNT_CLIENT_ID: z.string().regex(/^\d{1,64}$/),
+  HUAWEI_ACCOUNT_CLIENT_SECRET: z.string().min(1),
+  IDENTITY_SESSION_SECRET: z.string().min(32)
+});
+
 export type DeepSeekConfig = z.infer<typeof DeepSeekEnvSchema>;
 export type AppConfig = z.infer<typeof EnvSchema>;
+export type HuaweiAccountConfig = z.infer<typeof HuaweiAccountEnvSchema>;
 
 export function loadDeepSeekConfig(env: NodeJS.ProcessEnv = process.env): DeepSeekConfig {
   return DeepSeekEnvSchema.parse(env);
@@ -21,4 +28,8 @@ export function loadDeepSeekConfig(env: NodeJS.ProcessEnv = process.env): DeepSe
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return EnvSchema.parse(env);
+}
+
+export function loadHuaweiAccountConfig(env: NodeJS.ProcessEnv = process.env): HuaweiAccountConfig {
+  return HuaweiAccountEnvSchema.parse(env);
 }

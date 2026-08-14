@@ -1,12 +1,25 @@
-import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../domain/recipe.js';
-import { AnalyzeRequestSchema, ReviseRequestSchema } from '../domain/schemas.js';
+import type { AnalyzeRequest, AnalyzeResult, RecipeRevision, ReviseRequest } from '../domain/recipe.js';
+import { createHash } from 'node:crypto';
+import {
+  AnalyzeRequestSchema,
+  HuaweiAccountVerificationRequestSchema,
+  ReviseRequestSchema
+} from '../domain/schemas.js';
 import { mapError, type RequestLogEntry } from '../http/buildServer.js';
-import { createPublicError } from '../http/errors.js';
+import type { HuaweiAccountVerification } from '../services/huaweiAccountService.js';
+import { HuaweiAccountVerificationError } from '../services/huaweiAccountService.js';
+import type { IdentitySessionService } from '../services/identitySessionService.js';
 
 interface RecipeServiceDependency {
   analyze(request: AnalyzeRequest): Promise<AnalyzeResult>;
-  revise(request: ReviseRequest): Promise<RecipeDraft>;
+  revise(request: ReviseRequest): Promise<RecipeRevision>;
 }
+
+interface HuaweiAccountServiceDependency {
+  verifyAuthorizationCode(authorizationCode: string): Promise<HuaweiAccountVerification>;
+}
+
+type IdentitySessionDependency = Pick<IdentitySessionService, 'issue' | 'verify'>;
 
 export interface HuaweiHttpEvent {
   path?: unknown;
@@ -25,14 +38,17 @@ export interface HuaweiHttpResponse {
 
 export interface BuildHuaweiHandlerDependencies {
   service: RecipeServiceDependency;
+  accountService?: HuaweiAccountServiceDependency;
+  identitySessionService?: IdentitySessionDependency;
   logger?: { info(entry: RequestLogEntry): void };
 }
 
-type Action = 'health' | 'analyze' | 'revise';
+type Action = 'health' | 'analyze' | 'revise' | 'verifyHuaweiAccount' | 'validateIdentity';
 
 interface ActionEnvelope {
   action: Action;
   payload?: unknown;
+  identityToken?: string;
 }
 
 const MAX_BODY_BYTES = 65_536;
@@ -61,6 +77,7 @@ export function buildHuaweiHandler(dependencies: BuildHuaweiHandlerDependencies)
       }
 
       if (request.action === 'analyze') {
+        requireIdentitySession(dependencies.identitySessionService, request.identityToken);
         const input = AnalyzeRequestSchema.parse(request.payload);
         const result = input.answers === undefined ?
           await dependencies.service.analyze({ originalText: input.originalText }) :
@@ -69,10 +86,61 @@ export function buildHuaweiHandler(dependencies: BuildHuaweiHandlerDependencies)
         return jsonResponse(statusCode, result);
       }
 
+      if (request.action === 'verifyHuaweiAccount') {
+        if (dependencies.accountService === undefined || dependencies.identitySessionService === undefined) {
+          throw new HuaweiAccountVerificationError();
+        }
+        const input = HuaweiAccountVerificationRequestSchema.parse(request.payload);
+        const verification = await dependencies.accountService.verifyAuthorizationCode(input.authorizationCode);
+        const loginAt = Date.now();
+        const session = dependencies.identitySessionService.issue(
+          hashAccountIdentifier(verification.unionID.length > 0 ? verification.unionID : verification.openID),
+          {
+            accountLabel: verification.accountLabel,
+            displayName: verification.displayName,
+            accountId: verification.accountId,
+            avatarUrl: verification.avatarUrl,
+            loginAt
+          }
+        );
+        statusCode = 200;
+        return jsonResponse(statusCode, {
+          verified: true,
+          accountLabel: verification.accountLabel,
+          displayName: verification.displayName,
+          accountId: verification.accountId,
+          avatarUrl: verification.avatarUrl,
+          loginAt,
+          identityToken: session.identityToken,
+          expiresAt: session.expiresAt
+        });
+      }
+
+      if (request.action === 'validateIdentity') {
+        const identity = requireIdentitySession(dependencies.identitySessionService, request.identityToken);
+        statusCode = 200;
+        return jsonResponse(statusCode, {
+          verified: true,
+          accountLabel: identity.accountLabel,
+          displayName: identity.displayName,
+          accountId: identity.accountId,
+          avatarUrl: identity.avatarUrl,
+          loginAt: identity.loginAt,
+          expiresAt: identity.exp * 1000
+        });
+      }
+
+      requireIdentitySession(dependencies.identitySessionService, request.identityToken);
       const input = ReviseRequestSchema.parse(request.payload);
-      const recipe = await dependencies.service.revise(input);
+      const revision = input.previousReplies === undefined ?
+        await dependencies.service.revise({ currentRecipe: input.currentRecipe, instruction: input.instruction }) :
+        await dependencies.service.revise({
+          currentRecipe: input.currentRecipe,
+          instruction: input.instruction,
+          previousReplies: input.previousReplies
+        });
       statusCode = 200;
-      return jsonResponse(statusCode, { kind: 'recipe' as const, recipe });
+      return jsonResponse(statusCode, { kind: 'recipe' as const, recipe: revision.recipe, reply: revision.reply });
     } catch (error) {
       const mapped = mapError(error);
       statusCode = mapped.statusCode;
@@ -123,7 +191,11 @@ function assertBodySize(body: string): void {
 
 function resolveRequest(pathValue: unknown, body: unknown): ActionEnvelope {
   if (isRecord(body) && isAction(body.action)) {
-    return { action: body.action, payload: body.payload };
+    const resolved: ActionEnvelope = { action: body.action, payload: body.payload };
+    if (typeof body.identityToken === 'string') {
+      resolved.identityToken = body.identityToken;
+    }
+    return resolved;
   }
 
   const path = typeof pathValue === 'string' ? pathValue : '';
@@ -136,12 +208,26 @@ function resolveRequest(pathValue: unknown, body: unknown): ActionEnvelope {
   if (path.endsWith('/recipes/revise')) {
     return { action: 'revise', payload: body };
   }
+  if (path.endsWith('/identity/huawei-account')) {
+    return { action: 'verifyHuaweiAccount', payload: body };
+  }
 
   throw invalidRequestError();
 }
 
 function isAction(value: unknown): value is Action {
-  return value === 'health' || value === 'analyze' || value === 'revise';
+  return value === 'health' || value === 'analyze' || value === 'revise' ||
+    value === 'verifyHuaweiAccount' || value === 'validateIdentity';
+}
+
+function requireIdentitySession(
+  sessionService: IdentitySessionDependency | undefined,
+  token: string | undefined
+): ReturnType<IdentitySessionDependency['verify']> {
+  if (sessionService === undefined) {
+    throw new HuaweiAccountVerificationError();
+  }
+  return sessionService.verify(token);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -162,6 +248,10 @@ function jsonResponse(statusCode: number, body: unknown): HuaweiHttpResponse {
 
 function createRequestId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function hashAccountIdentifier(identifier: string): string {
+  return createHash('sha256').update(identifier, 'utf8').digest('base64url');
 }
 
 function invalidRequestError(): Error {

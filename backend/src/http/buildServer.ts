@@ -7,14 +7,16 @@ import {
   DeepSeekRequestError
 } from '../ai/deepSeekClient.js';
 import type { AppConfig } from '../config.js';
-import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../domain/recipe.js';
+import type { AnalyzeRequest, AnalyzeResult, RecipeRevision, ReviseRequest } from '../domain/recipe.js';
 import { AnalyzeRequestSchema, ReviseRequestSchema } from '../domain/schemas.js';
 import { InvalidModelOutputError } from '../services/recipeService.js';
+import { HuaweiAccountVerificationError } from '../services/huaweiAccountService.js';
+import { IdentitySessionError } from '../services/identitySessionService.js';
 import { createPublicError, type PublicError } from './errors.js';
 
 interface RecipeServiceDependency {
   analyze(request: AnalyzeRequest): Promise<AnalyzeResult>;
-  revise(request: ReviseRequest): Promise<RecipeDraft>;
+  revise(request: ReviseRequest): Promise<RecipeRevision>;
 }
 
 export interface RequestLogEntry {
@@ -81,8 +83,14 @@ export function buildServer(dependencies: BuildServerDependencies): FastifyInsta
 
   app.post('/api/v1/recipes/revise', { preHandler: requireAuthorization }, async (request) => {
     const input = ReviseRequestSchema.parse(request.body);
-    const recipe = await dependencies.service.revise(input);
-    return { kind: 'recipe' as const, recipe };
+    const revision = input.previousReplies === undefined ?
+      await dependencies.service.revise({ currentRecipe: input.currentRecipe, instruction: input.instruction }) :
+      await dependencies.service.revise({
+        currentRecipe: input.currentRecipe,
+        instruction: input.instruction,
+        previousReplies: input.previousReplies
+      });
+    return { kind: 'recipe' as const, recipe: revision.recipe, reply: revision.reply };
   });
 
   return app;
@@ -123,6 +131,12 @@ export function mapError(error: unknown): { statusCode: number; body: PublicErro
     error instanceof DeepSeekRequestError
   ) {
     return { statusCode: 503, body: createPublicError('AI_UNAVAILABLE') };
+  }
+  if (error instanceof IdentitySessionError) {
+    return { statusCode: 401, body: createPublicError('IDENTITY_REQUIRED') };
+  }
+  if (error instanceof HuaweiAccountVerificationError) {
+    return { statusCode: 503, body: createPublicError('ACCOUNT_AUTH_UNAVAILABLE') };
   }
   return { statusCode: 500, body: createPublicError('INTERNAL_ERROR') };
 }

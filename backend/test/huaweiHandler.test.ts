@@ -4,10 +4,11 @@ import {
   DeepSeekRequestAbortedError,
   DeepSeekRequestError
 } from '../src/ai/deepSeekClient.js';
-import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, ReviseRequest } from '../src/domain/recipe.js';
+import type { AnalyzeRequest, AnalyzeResult, RecipeDraft, RecipeRevision, ReviseRequest } from '../src/domain/recipe.js';
 import { buildHuaweiHandler } from '../src/huawei/buildHuaweiHandler.js';
 import { handler as agcEntrypoint } from '../src/huaweiHandler.js';
 import { InvalidModelOutputError } from '../src/services/recipeService.js';
+import { IdentitySessionService } from '../src/services/identitySessionService.js';
 
 const recipe: RecipeDraft = {
   name: '番茄炒蛋',
@@ -16,24 +17,50 @@ const recipe: RecipeDraft = {
   steps: ['炒熟番茄。'],
   experience: []
 };
+const reply = '番茄炒蛋已经按家里的做法整理好了。';
+const identitySessionService = new IdentitySessionService(
+  'test-session-secret-with-at-least-32-characters',
+  () => Date.UTC(2026, 7, 12)
+);
+const accountProfile = {
+  accountLabel: '华为账号',
+  displayName: '138******00',
+  accountId: '•••• 12345678',
+  avatarUrl: 'https://example.com/avatar.jpg',
+  loginAt: Date.UTC(2026, 7, 12)
+};
+const identityToken = identitySessionService.issue('hashed-account-id', accountProfile).identityToken;
 
 interface RecipeServiceDependency {
   analyze(request: AnalyzeRequest): Promise<AnalyzeResult>;
-  revise(request: ReviseRequest): Promise<RecipeDraft>;
+  revise(request: ReviseRequest): Promise<RecipeRevision>;
 }
 
 function createService(overrides: Partial<RecipeServiceDependency> = {}): RecipeServiceDependency {
   return {
-    analyze: vi.fn(async () => ({ kind: 'recipe', recipe })),
-    revise: vi.fn(async () => recipe),
+    analyze: vi.fn(async () => ({ kind: 'recipe', recipe, reply })),
+    revise: vi.fn(async () => ({ recipe, reply })),
     ...overrides
   };
 }
 
-function createHandler(service = createService(), log = vi.fn()) {
+function createHandler(
+  service = createService(),
+  log = vi.fn(),
+  accountService?: { verifyAuthorizationCode(code: string): Promise<{
+    accountLabel: string;
+    displayName: string;
+    accountId: string;
+    avatarUrl: string;
+    openID: string;
+    unionID: string;
+  }> }
+) {
   return {
     handler: buildHuaweiHandler({
       service,
+      accountService,
+      identitySessionService,
       logger: { info: log }
     }),
     log
@@ -46,6 +73,10 @@ function authorizedEvent(body: unknown) {
     body: JSON.stringify(body),
     isBase64Encoded: false
   };
+}
+
+function authenticatedEvent(action: 'analyze' | 'revise', payload: unknown) {
+  return authorizedEvent({ action, payload, identityToken });
 }
 
 describe('Huawei AGC cloud function handler', () => {
@@ -76,13 +107,10 @@ describe('Huawei AGC cloud function handler', () => {
   it('analyzes an action envelope after AGC gateway authentication', async () => {
     const service = createService();
     const { handler } = createHandler(service);
-    const response = await handler(authorizedEvent({
-      action: 'analyze',
-      payload: { originalText: '番茄炒蛋。' }
-    }));
+    const response = await handler(authenticatedEvent('analyze', { originalText: '番茄炒蛋。' }));
 
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ kind: 'recipe', recipe });
+    expect(JSON.parse(response.body)).toEqual({ kind: 'recipe', recipe, reply });
     expect(service.analyze).toHaveBeenCalledWith({ originalText: '番茄炒蛋。' });
   });
 
@@ -91,7 +119,8 @@ describe('Huawei AGC cloud function handler', () => {
     const { handler } = createHandler(service);
     const body = Buffer.from(JSON.stringify({
       action: 'revise',
-      payload: { currentRecipe: recipe, instruction: '多炒一会。' }
+      payload: { currentRecipe: recipe, instruction: '多炒一会。' },
+      identityToken
     })).toString('base64');
     const response = await handler({
       body,
@@ -99,11 +128,70 @@ describe('Huawei AGC cloud function handler', () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({ kind: 'recipe', recipe });
+    expect(JSON.parse(response.body)).toEqual({ kind: 'recipe', recipe, reply });
     expect(service.revise).toHaveBeenCalledWith({ currentRecipe: recipe, instruction: '多炒一会。' });
   });
 
-  it('keeps compatibility with path-based requests', async () => {
+  it('verifies a Huawei Account authorization code through the server dependency', async () => {
+    const accountService = {
+      verifyAuthorizationCode: vi.fn(async () => ({
+        accountLabel: '华为账号',
+        displayName: '138******00',
+        accountId: '•••• 12345678',
+        avatarUrl: 'https://example.com/avatar.jpg',
+        openID: 'open-id',
+        unionID: 'union-id'
+      }))
+    };
+    const { handler } = createHandler(createService(), vi.fn(), accountService);
+    const response = await handler(authorizedEvent({
+      action: 'verifyHuaweiAccount',
+      payload: { authorizationCode: 'authorization-code' }
+    }));
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      verified: true,
+      accountLabel: '华为账号',
+      displayName: '138******00',
+      accountId: '•••• 12345678',
+      avatarUrl: 'https://example.com/avatar.jpg',
+      loginAt: expect.any(Number),
+      identityToken: expect.any(String),
+      expiresAt: expect.any(Number)
+    });
+    expect(accountService.verifyAuthorizationCode).toHaveBeenCalledWith('authorization-code');
+  });
+
+  it('validates an issued identity session', async () => {
+    const { handler } = createHandler();
+    const response = await handler(authorizedEvent({
+      action: 'validateIdentity',
+      identityToken
+    }));
+
+    expect(response.statusCode).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      verified: true,
+      ...accountProfile,
+      expiresAt: expect.any(Number)
+    });
+  });
+
+  it('requires a valid identity session before calling AI actions', async () => {
+    const service = createService();
+    const { handler } = createHandler(service);
+    const response = await handler(authorizedEvent({
+      action: 'analyze',
+      payload: { originalText: '番茄炒蛋。' }
+    }));
+
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body)).toMatchObject({ error: { code: 'IDENTITY_REQUIRED' } });
+    expect(service.analyze).not.toHaveBeenCalled();
+  });
+
+  it('does not let legacy path-based requests bypass identity verification', async () => {
     const service = createService();
     const { handler } = createHandler(service);
     const response = await handler({
@@ -111,21 +199,19 @@ describe('Huawei AGC cloud function handler', () => {
       path: '/api/v1/recipes/analyze'
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(service.analyze).toHaveBeenCalledWith({ originalText: '番茄炒蛋。' });
+    expect(response.statusCode).toBe(401);
+    expect(JSON.parse(response.body)).toMatchObject({ error: { code: 'IDENTITY_REQUIRED' } });
+    expect(service.analyze).not.toHaveBeenCalled();
   });
 
   it('rejects invalid and oversized requests', async () => {
     const { handler } = createHandler();
 
-    const invalid = await handler(authorizedEvent({ action: 'analyze', payload: { originalText: '' } }));
+    const invalid = await handler(authenticatedEvent('analyze', { originalText: '' }));
     expect(invalid.statusCode).toBe(400);
     expect(JSON.parse(invalid.body)).toMatchObject({ error: { code: 'INVALID_REQUEST' } });
 
-    const oversized = await handler(authorizedEvent({
-      action: 'analyze',
-      payload: { originalText: 'x'.repeat(65_536) }
-    }));
+    const oversized = await handler(authenticatedEvent('analyze', { originalText: 'x'.repeat(65_536) }));
     expect(oversized.statusCode).toBe(413);
     expect(JSON.parse(oversized.body)).toMatchObject({ error: { code: 'PAYLOAD_TOO_LARGE' } });
   });
@@ -139,10 +225,7 @@ describe('Huawei AGC cloud function handler', () => {
     const { handler } = createHandler(createService({
       analyze: vi.fn(async () => { throw error; })
     }));
-    const response = await handler(authorizedEvent({
-      action: 'analyze',
-      payload: { originalText: '番茄炒蛋。' }
-    }));
+    const response = await handler(authenticatedEvent('analyze', { originalText: '番茄炒蛋。' }));
 
     expect(response.statusCode).toBe(statusCode);
     expect(JSON.parse(response.body)).toMatchObject({ error: { code } });
@@ -157,7 +240,7 @@ describe('Huawei AGC cloud function handler', () => {
       analyze: vi.fn(async () => { throw new Error(privateError); })
     }), log);
 
-    await handler(authorizedEvent({ action: 'analyze', payload: { originalText: privateText } }));
+    await handler(authenticatedEvent('analyze', { originalText: privateText }));
 
     const logs = JSON.stringify(log.mock.calls);
     expect(logs).not.toContain(privateText);
