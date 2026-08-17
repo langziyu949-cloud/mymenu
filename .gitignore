@@ -1,3 +1,9 @@
 .superpowers/
-.worktrees/
 .DS_Store
+.worktrees/
+backend/.env
+backend/dist/
+backend/node_modules/
+backend/kitchen-master-scf.zip
+backend/kitchen-master-agc.zip
+harmonyos/simulator-backup-*/

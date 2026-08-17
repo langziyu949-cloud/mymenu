@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "把做成功的味道收进自己的菜谱夹"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "厨房主理人"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "厨房主理人"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+#!/bin/bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+npm ci
+npm run test
+rm -rf dist
+npm run build
+npm prune --omit=dev
+rm -rf node_modules/.vite
+rm -f kitchen-master-scf.zip
+zip -qr kitchen-master-scf.zip dist node_modules package.json package-lock.json scf_bootstrap
+npm install
