@@ -155,6 +155,47 @@ struct Index {
     this.initialize();
   }
 
+  onBackPress(): boolean {
+    if (this.showPhotoConfirm) {
+      this.cancelPendingPhoto();
+      return true;
+    }
+    if (this.showPhotoPrompt) {
+      this.showPhotoPrompt = false;
+      return true;
+    }
+    if (this.showDeleteConfirm || this.showDiscardConfirm || this.showHuaweiLogoutConfirm) {
+      this.showDeleteConfirm = false;
+      this.showDiscardConfirm = false;
+      this.showHuaweiLogoutConfirm = false;
+      return true;
+    }
+    if (this.loginPolicyDetailKind > 0) {
+      this.loginPolicyDetailKind = 0;
+      return true;
+    }
+    if (this.profileDetailKind > 0) {
+      this.profileDetailKind = 0;
+      return true;
+    }
+    if (this.currentPage === 0 && this.detailId.length > 0) {
+      if (this.isEditingDetail) {
+        this.isEditingDetail = false;
+      } else {
+        this.closeDetail();
+      }
+      return true;
+    }
+    if (this.showDraftRecipeDetail) {
+      this.returnToConversation();
+      return true;
+    }
+    if (this.archiveAnimating) {
+      return true;
+    }
+    return false;
+  }
+
   private configureHuaweiAccountLogin(): void {
     this.huaweiLoginController
       .setAgreementStatus(loginComponentManager.AgreementStatus.NOT_ACCEPTED)
@@ -1780,37 +1821,28 @@ struct Index {
 
       Column() {
         Row({ space: 10 }) {
-          Stack({ alignContent: Alignment.Start }) {
-            TextInput({ text: this.composerText, placeholder: '' })
-              .width('100%')
-              .height(52)
-              .fontSize(15)
-              .fontColor(INK)
-              .caretColor(JADE)
-              .backgroundColor('#00000000')
-              .borderRadius(16)
-              .padding({ left: 13, right: 13 })
-              .enterKeyType(EnterKeyType.Send)
-              .onSubmit(() => {
-                this.returnToConversation();
-                this.sendMessage();
-              })
-              .onChange((value: string) => {
-                this.composerText = value;
-                this.statusMessage = '';
-              })
-            if (this.composerText.length === 0) {
-              Text('继续告诉我怎么改…')
-                .fontSize(14)
-                .fontColor(MUTED)
-                .padding({ left: 13, right: 13 })
-                .hitTestBehavior(HitTestMode.None)
-            }
-          }
-          .layoutWeight(1)
-          .height(52)
-          .backgroundColor('#EDF1EE')
-          .borderRadius(16)
+          TextArea({ text: this.composerText, placeholder: '继续告诉我怎么改…' })
+            .layoutWeight(1)
+            .constraintSize({ minHeight: 52, maxHeight: 112 })
+            .maxLines(4)
+            .fontSize(15)
+            .lineHeight(21)
+            .fontColor(INK)
+            .placeholderColor(MUTED)
+            .caretColor(JADE)
+            .backgroundColor('#EDF1EE')
+            .borderRadius(16)
+            .padding({ left: 13, right: 13, top: 9, bottom: 9 })
+            .enterKeyType(EnterKeyType.Send)
+            .barState(BarState.Off)
+            .onSubmit(() => {
+              this.returnToConversation();
+              this.sendMessage();
+            })
+            .onChange((value: string) => {
+              this.composerText = value;
+              this.statusMessage = '';
+            })
           Button('↑', { type: ButtonType.Circle })
             .width(46)
             .height(46)
@@ -1825,6 +1857,7 @@ struct Index {
             })
         }
         .width('100%')
+        .alignItems(VerticalAlign.Bottom)
       }
       .width('100%')
       .padding({ left: 14, right: 14, top: 9, bottom: 9 })
@@ -1900,28 +1933,36 @@ struct Index {
                 .onChange((value: boolean) => {
                   this.updateHuaweiAgreement(value);
                 })
-              Text('我已阅读并同意')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor(MUTED)
-              Text('《AI 服务规则》')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor(JADE)
-                .fontWeight(FontWeight.Medium)
-                .onClick(() => this.loginPolicyDetailKind = 1)
-              Text('和')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor(MUTED)
-              Text('《隐私政策》')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor(JADE)
-                .fontWeight(FontWeight.Medium)
-                .onClick(() => this.loginPolicyDetailKind = 2)
+              Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Center }) {
+                Text('我已阅读并同意')
+                  .fontSize(12)
+                  .lineHeight(20)
+                  .fontColor(MUTED)
+                  .margin({ right: 5, bottom: 2 })
+                Text('《AI 服务规则》')
+                  .fontSize(12)
+                  .lineHeight(20)
+                  .fontColor(JADE)
+                  .fontWeight(FontWeight.Medium)
+                  .margin({ right: 5, bottom: 2 })
+                  .onClick(() => this.loginPolicyDetailKind = 1)
+                Text('和')
+                  .fontSize(12)
+                  .lineHeight(20)
+                  .fontColor(MUTED)
+                  .margin({ right: 5, bottom: 2 })
+                Text('《隐私政策》')
+                  .fontSize(12)
+                  .lineHeight(20)
+                  .fontColor(JADE)
+                  .fontWeight(FontWeight.Medium)
+                  .margin({ bottom: 2 })
+                  .onClick(() => this.loginPolicyDetailKind = 2)
+              }
+              .layoutWeight(1)
             }
             .width('100%')
+            .alignItems(VerticalAlign.Top)
 
             LoginWithHuaweiIDButton({
               params: {
@@ -2055,38 +2096,32 @@ struct Index {
 
       Column() {
         Row({ space: 10 }) {
-          Stack({ alignContent: Alignment.Start }) {
-            TextInput({ text: this.composerText, placeholder: '' })
-              .width('100%')
-              .height(58)
-              .fontSize(15)
-              .fontColor(INK)
-              .caretColor(JADE)
-              .backgroundColor('#00000000')
-              .borderRadius(16)
-              .padding({ left: 13, right: 13 })
-              .enterKeyType(EnterKeyType.Send)
-              .onSubmit(() => this.sendMessage())
-              .onChange((value: string) => {
-                this.composerText = value;
-                this.statusMessage = '';
-                if (!this.hasDraft && !this.hasQuestion) {
-                  this.persistDraft();
-                }
-              })
-            if (this.composerText.length === 0) {
-              Text(this.hasDraft ? '告诉我哪里要改…' :
-                (this.hasQuestion ? '补充关键信息…' : '描述这道菜的做法…'))
-                .fontSize(15)
-                .fontColor(MUTED)
-                .padding({ left: 13, right: 13 })
-                .hitTestBehavior(HitTestMode.None)
-            }
-          }
+          TextArea({
+            text: this.composerText,
+            placeholder: this.hasDraft ? '告诉我哪里要改…' :
+              (this.hasQuestion ? '补充关键信息…' : '描述这道菜的做法…')
+          })
             .layoutWeight(1)
-            .height(58)
+            .constraintSize({ minHeight: 52, maxHeight: 112 })
+            .maxLines(4)
+            .fontSize(15)
+            .lineHeight(21)
+            .fontColor(INK)
+            .placeholderColor(MUTED)
+            .caretColor(JADE)
             .backgroundColor('#EDF1EE')
             .borderRadius(16)
+            .padding({ left: 13, right: 13, top: 9, bottom: 9 })
+            .enterKeyType(EnterKeyType.Send)
+            .barState(BarState.Off)
+            .onSubmit(() => this.sendMessage())
+            .onChange((value: string) => {
+              this.composerText = value;
+              this.statusMessage = '';
+              if (!this.hasDraft && !this.hasQuestion) {
+                this.persistDraft();
+              }
+            })
           Button('↑', { type: ButtonType.Circle })
             .width(48)
             .height(48)
@@ -2099,6 +2134,7 @@ struct Index {
             .onClick(() => this.sendMessage())
         }
         .width('100%')
+        .alignItems(VerticalAlign.Bottom)
 
       }
       .width('100%')
@@ -2261,86 +2297,94 @@ struct Index {
 
   @Builder
   private RecipeLibraryPage() {
-    Column({ space: 14 }) {
+    Column() {
       Row() {
-        Column({ space: 3 }) {
+        Column({ space: 2 }) {
           Text('我的菜谱夹')
             .width('100%')
-            .fontSize(26)
+            .fontSize(22)
             .fontWeight(FontWeight.Bold)
             .fontColor(JADE)
           Text(`${this.recipes.length} 道家常味道`)
             .width('100%')
-            .fontSize(13)
+            .fontSize(12)
             .fontColor(MUTED)
         }
         .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
         this.RecipeLayoutToggle()
       }
       .width('100%')
+      .height(68)
+      .padding({ left: 18, right: 18 })
+      .backgroundColor(CARD)
 
-      Search({ value: this.searchText, placeholder: '搜菜名、食材或调料' })
-        .width('100%')
-        .height(44)
-        .fontColor(INK)
-        .placeholderColor(MUTED)
-        .caretStyle({ width: 2, color: JADE })
-        .backgroundColor(CARD)
-        .borderRadius(14)
-        .onChange((value: string) => this.searchRecipes(value))
+      Column({ space: 14 }) {
+        Search({ value: this.searchText, placeholder: '搜菜名、食材或调料' })
+          .width('100%')
+          .height(44)
+          .fontColor(INK)
+          .placeholderColor(MUTED)
+          .caretStyle({ width: 2, color: JADE })
+          .backgroundColor(CARD)
+          .borderRadius(14)
+          .onChange((value: string) => this.searchRecipes(value))
 
-      if (this.visibleRecipes.length === 0) {
-        Column({ space: 12 }) {
-          Text(this.searchText.length > 0 ? '没有找到这道味道' : '菜谱夹还是空的')
-            .fontSize(19)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(INK)
-          Text(this.searchText.length > 0 ? '换个菜名或食材试试' : '点击下方 +，从一段做法开始记录')
-            .fontSize(13)
-            .fontColor(MUTED)
-          if (this.searchText.length === 0) {
-            Button('记录第一道菜')
-              .fontColor('#FFFFFF')
-              .backgroundColor(JADE)
-              .borderRadius(14)
-              .onClick(() => {
-                this.currentPage = 1;
-              })
+        if (this.visibleRecipes.length === 0) {
+          Column({ space: 12 }) {
+            Text(this.searchText.length > 0 ? '没有找到这道味道' : '菜谱夹还是空的')
+              .fontSize(19)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(INK)
+            Text(this.searchText.length > 0 ? '换个菜名或食材试试' : '点击下方 +，从一段做法开始记录')
+              .fontSize(13)
+              .fontColor(MUTED)
+            if (this.searchText.length === 0) {
+              Button('记录第一道菜')
+                .fontColor('#FFFFFF')
+                .backgroundColor(JADE)
+                .borderRadius(14)
+                .onClick(() => {
+                  this.currentPage = 1;
+                })
+            }
           }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else if (this.recipeLayoutMode === 0) {
+          List({ space: 10 }) {
+            ForEach(this.visibleRecipes, (recipe: RecipeRecord) => {
+              ListItem() {
+                this.RecipeListCard(recipe)
+              }
+            }, (recipe: RecipeRecord) => `${recipe.id}-${recipe.updatedAt}`)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .scrollBar(BarState.Off)
+        } else {
+          Grid() {
+            ForEach(this.visibleRecipes, (recipe: RecipeRecord) => {
+              GridItem() {
+                this.RecipeGridCard(recipe)
+              }
+            }, (recipe: RecipeRecord) => `${recipe.id}-${recipe.updatedAt}`)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .columnsTemplate('1fr 1fr')
+          .columnsGap(12)
+          .rowsGap(12)
+          .scrollBar(BarState.Off)
         }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else if (this.recipeLayoutMode === 0) {
-        List({ space: 10 }) {
-          ForEach(this.visibleRecipes, (recipe: RecipeRecord) => {
-            ListItem() {
-              this.RecipeListCard(recipe)
-            }
-          }, (recipe: RecipeRecord) => `${recipe.id}-${recipe.updatedAt}`)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-      } else {
-        Grid() {
-          ForEach(this.visibleRecipes, (recipe: RecipeRecord) => {
-            GridItem() {
-              this.RecipeGridCard(recipe)
-            }
-          }, (recipe: RecipeRecord) => `${recipe.id}-${recipe.updatedAt}`)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .columnsTemplate('1fr 1fr')
-        .columnsGap(12)
-        .rowsGap(12)
-        .scrollBar(BarState.Off)
       }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 14, bottom: 12 })
     }
     .width('100%')
     .height('100%')
-    .padding({ left: 16, right: 16, top: 20, bottom: 12 })
     .backgroundColor(PAPER)
   }
 
@@ -3305,43 +3349,62 @@ struct Index {
 
   @Builder
   private ProfilePage() {
-    Scroll() {
-      Column({ space: 16 }) {
+    Column() {
+      Row() {
+        Column({ space: 2 }) {
         Text('我的')
           .width('100%')
-          .fontSize(26)
+          .fontSize(22)
           .fontWeight(FontWeight.Bold)
           .fontColor(JADE)
-        this.HuaweiAccountCard()
-        Column() {
-          this.ProfileRow('本机菜谱', `${this.recipes.length} 道菜保存在当前设备`, '本地优先')
-          Divider().color(LINE)
-          this.ProfileRow('AI 服务', this.aiOnline ?
-            '菜谱整理和修改服务当前可用。' :
-            '服务当前不可用，本地菜谱不会丢失。',
-            this.aiOnline ? '已连接' : '待连接')
+          Text('账号、服务与应用说明')
+            .width('100%')
+            .fontSize(12)
+            .fontColor(MUTED)
         }
-        .width('100%')
-        .padding({ left: 16, right: 16 })
-        .backgroundColor(CARD)
-        .borderRadius(18)
-        Column() {
-          this.ProfileLinkRow('AI 内容说明', '生成内容、核对方法与能力边界', 1)
-          Divider().color(LINE).margin({ left: 16 })
-          this.ProfileLinkRow('隐私说明', '账号、菜谱文字和照片如何处理', 2)
-          Divider().color(LINE).margin({ left: 16 })
-          this.ProfileLinkRow('关于', '产品定位、数据原则与版本', 3)
-        }
-        .width('100%')
-        .backgroundColor(CARD)
-        .borderRadius(18)
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: 20, bottom: 26 })
+      .height(68)
+      .padding({ left: 18, right: 18 })
+      .backgroundColor(CARD)
+
+      Scroll() {
+        Column({ space: 16 }) {
+          this.HuaweiAccountCard()
+          Column() {
+            this.ProfileRow('本机菜谱', `${this.recipes.length} 道菜保存在当前设备`, '本地优先')
+            Divider().color(LINE)
+            this.ProfileRow('AI 服务', this.aiOnline ?
+              '菜谱整理和修改服务当前可用。' :
+              '服务当前不可用，本地菜谱不会丢失。',
+              this.aiOnline ? '已连接' : '待连接')
+          }
+          .width('100%')
+          .padding({ left: 16, right: 16 })
+          .backgroundColor(CARD)
+          .borderRadius(18)
+          Column() {
+            this.ProfileLinkRow('AI 内容说明', '生成内容、核对方法与能力边界', 1)
+            Divider().color(LINE).margin({ left: 16 })
+            this.ProfileLinkRow('隐私说明', '账号、菜谱文字和照片如何处理', 2)
+            Divider().color(LINE).margin({ left: 16 })
+            this.ProfileLinkRow('关于', '产品定位、数据原则与版本', 3)
+          }
+          .width('100%')
+          .backgroundColor(CARD)
+          .borderRadius(18)
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 16, bottom: 26 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
     }
     .width('100%')
     .height('100%')
-    .scrollBar(BarState.Off)
     .backgroundColor(PAPER)
   }
 
